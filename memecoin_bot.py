@@ -202,14 +202,17 @@ def now_iso():
 
 
 # ---------- Discord ----------
-def notify(embed: dict):
-    """Post one embed via webhook. A Discord failure must never break the bot."""
+def notify(embed: dict, content: str = ""):
+    """Post one embed (plus optional plain message text) via webhook. A Discord failure must never break the bot."""
     if not DISCORD_WEBHOOK:
         print("[warn] DISCORD_WEBHOOK_URL not set; skipping alert")
         return
+    payload = {"embeds": [embed]}
+    if content:
+        payload["content"] = content  # regular message text, shown above the embed
     try:
         for _ in range(2):  # one retry if rate limited
-            r = requests.post(DISCORD_WEBHOOK, json={"embeds": [embed]}, timeout=10)
+            r = requests.post(DISCORD_WEBHOOK, json=payload, timeout=10)
             if r.status_code == 429:
                 time.sleep(float(r.json().get("retry_after", 1)))
                 continue
@@ -282,7 +285,6 @@ def build_signal_embed(pair, rc, checks, p_win, model_n, cfg: Config) -> dict:
         {"name": "Confidence note", "value": learn, "inline": False},
         {"name": "NOT checked", "value": "Honeypot (sell) simulation and bundled-launch detection beyond RugCheck's insider flags. Verify before buying.", "inline": False},
         {"name": "Paper plan", "value": f"TP +{cfg.take_profit:.0%} ({price_str(price * (1 + cfg.take_profit))}) / SL -{cfg.stop_loss:.0%} ({price_str(price * (1 - cfg.stop_loss))}) / max hold {cfg.max_hold_min / 60:.0f}h", "inline": False},
-        {"name": "Mint (tap to copy, paste into Axiom/Fomo)", "value": f"```{mint}```", "inline": False},
         {"name": "Links", "value": " • ".join(links)[:1000], "inline": False},
     ]
     embed = {
@@ -309,7 +311,6 @@ def build_exit_embed(pos: "Position", price: float, pnl: float, reason: str, mod
             {"name": "Now", "value": price_str(price) if price else "no price (possible rug)", "inline": True},
             {"name": "Change", "value": f"{change:+.1%}", "inline": True},
             {"name": "Paper PnL", "value": f"${pnl:.2f} on ${pos.size_usd:.0f} (ignores fees/slippage)", "inline": False},
-            {"name": "Mint", "value": f"```{pos.mint}```", "inline": False},
         ],
         "footer": {"text": f"Result logged. Model has now learned from {model_n} outcomes."},
         "timestamp": now_iso(),
@@ -489,7 +490,7 @@ class PaperBot:
                                    "liquidity": (pair.get("liquidity") or {}).get("usd"),
                                    "holders": rc["holders"], "top10_pct": rc["top10_pct"],
                                    "insider_pct": rc["insider_pct"], "lp_locked_pct": rc["lp_locked_pct"]}})
-            notify(build_signal_embed(pair, rc, checks, p_win, self.model.n, cfg))
+            notify(build_signal_embed(pair, rc, checks, p_win, self.model.n, cfg), content=f"`{mint}`")  # CA
 
     def manage(self):
         cfg = self.cfg
@@ -521,7 +522,7 @@ class PaperBot:
                 self.log("EXIT", pos, price, pnl, reason)
                 self.jlog({"type": "outcome", "t": now_iso(), "mint": mint, "symbol": pos.symbol,
                            "pnl": round(pnl, 2), "reason": reason, "win": pnl > 0, "p_win": round(pos.p_win, 4)})
-                notify(build_exit_embed(pos, price, pnl, reason, self.model.n))
+                notify(build_exit_embed(pos, price, pnl, reason, self.model.n), content=f"`{pos.mint}`")  # CA
 
     # ----- persistence -----
     def save_state(self):
@@ -630,7 +631,8 @@ def send_test():
           "lp_locked_pct": 100.0, "rugged": False, "danger_risks": 0, "risk_names": []}
     checks = evaluate(pair, rc, True, cfg)
     model = Model()
-    notify(build_signal_embed(pair, rc, checks, model.predict(to_x(checks)), model.n, cfg))
+    notify(build_signal_embed(pair, rc, checks, model.predict(to_x(checks)), model.n, cfg),
+           content=f"`{pair['baseToken']['address']}`")  # CA
     print("Test embed sent (check your Discord channel).")
 
 
