@@ -1,3 +1,5 @@
 time,action,symbol,mint,price,pnl_usd,reason
 2026-10-19 17:50:51,SIGNAL,HATCH,GNXbqbibZ1MVi7tyCfjSM8CxgfUEzRSDTdDrDtNhatch,1.998e-05,0.0,
 2026-10-19 17:50:53,SIGNAL,ELONDOG,3qSd27nb3zyRmqbhLzH4PdeYcADqeLtjgYy2Fp4Apump,7.486e-05,0.0,
+2026-10-19 18:26:07,EXIT,ELONDOG,3qSd27nb3zyRmqbhLzH4PdeYcADqeLtjgYy2Fp4Apump,4.712e-05,-9.26,stop_loss
+2026-10-19 18:26:10,SIGNAL,VICEWIRE,Fpg2JV9kHtjhiHEySAaZpH2Csmb63ZAYfnqzD3Xfpump,0.000132,0.0,
