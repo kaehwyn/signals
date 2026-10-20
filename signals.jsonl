@@ -88,3 +88,4 @@
 {"type": "update", "t": "2026-10-20T09:25:07Z", "mint": "FGkCj28xhabWTYg9QyzACvs4NsN6LUyesP6EwiHepump", "symbol": "UHI", "kind": "INVALIDATED", "text": "Price $0.0003058 broke the invalidation level $0.0003312; the setup no longer holds."}
 {"type": "update", "t": "2026-10-20T09:56:46Z", "mint": "FGkCj28xhabWTYg9QyzACvs4NsN6LUyesP6EwiHepump", "symbol": "UHI", "kind": "INVALIDATED", "text": "Price $0.0002823 broke the invalidation level $0.0003312; the setup no longer holds."}
 {"type": "outcome", "t": "2026-10-20T09:56:46Z", "mint": "FGkCj28xhabWTYg9QyzACvs4NsN6LUyesP6EwiHepump", "symbol": "UHI", "category": "QUICK SCALP", "pnl": -6.2, "reason": "stop_loss", "win": false, "score": 72.0}
+{"type": "outcome", "t": "2026-10-20T11:15:32Z", "mint": "GisLeWojTwmb4XRnZxvGoZ9VA3AhXmUKPtUeEooRpump", "symbol": "EVERNORTHX", "category": "QUICK SCALP", "pnl": 1.99, "reason": "timeout", "win": true, "score": 66.9}
