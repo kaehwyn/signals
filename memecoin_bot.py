@@ -1,30 +1,36 @@
 """
-Solana memecoin radar (PAPER mode): finds and CLASSIFIES opportunities, quality over quantity.
+Solana memecoin SCAN RADAR (research leads only: no trading, no paper trades). Built to run 24/7.
 
-Every monitored token is classified from ALL available data (price action, volume, liquidity, buyers/
-sellers, holders, wallet concentration, insiders/clusters, narrative + current meta) into one of:
-    QUICK SCALP | NARRATIVE META | EARLY GEM | MOMENTUM | AVOID   (or NO PLAY)
-Each category has its own gates, so a token is never forced into a play because one metric looks good.
-Alerts (compact Discord embed, CA at the bottom) are sent only for qualified plays. If nothing qualifies,
-the bot stays quiet and (once per idle_notice_minutes) says: NO QUALITY PLAYS RIGHT NOW.
+It discovers, tracks and CLASSIFIES memecoins, then posts to up to three Discord channels. Each channel is a
+webhook you create; if its variable is not set, that feed is simply off:
 
-Scanning is continuous: new pairs, FINAL STRETCH (pump.fun bonding curve nearly full) and MIGRATED lanes
-are polled every 20-60s; every monitored token is refreshed at least once a minute (strong ~10s,
-new ~15s, watch ~30s, weak 60s). Classifications are recomputed on every refresh and can change; if an
-alerted token changes category, turns AVOID or breaks its invalidation level you get a short UPDATE.
+  DISCORD_WEBHOOK_URL            #signals    quality plays: QUICK SCALP / NARRATIVE META / EARLY GEM / MOMENTUM,
+                                              plus a short UPDATE if a play turns AVOID or changes category
+  DISCORD_RADAR_WEBHOOK_URL      #radar      coin feed: EARLY RADAR, RUNNERS, TRENDING, FINAL STRETCH, MIGRATED
+  DISCORD_HEARTBEAT_WEBHOOK_URL  #heartbeat  status post (first after ~90s, then every 30 min): coins discovered
+                                              and scanned, lanes, states, blockers. It is not a coin alert.
 
-Paper take-profit / stop-loss / timeout / daily-loss-limit risk management is unchanged. No wallet, no
-keys, no real trades.
+Every coin post puts the CA in a Discord code block in the message text, above the embed, so it is easy to copy.
+
+How tokens are judged
+  * Every monitored token is classified from ALL available data (price action, volume, liquidity, buyers and
+    sellers, holders, wallet concentration, insiders/clusters, narrative + current meta) into QUICK SCALP,
+    MOMENTUM, NARRATIVE META, EARLY GEM, AVOID or NO PLAY. Each play type has its own gates, so one good
+    metric never forces a recommendation. Safety vetoes always override the score.
+  * Scanning is continuous: new pairs, FINAL STRETCH (pump.fun bonding curve nearly full) and MIGRATED lanes
+    are polled every 20-60s and every monitored token is refreshed at least once a minute (strong ~10s,
+    new ~15s, watch ~30s, weak 60s). Classifications are recomputed on every refresh and can change.
+  * The radar keeps the FIRST quote it ever recorded for each token (retained across restarts) so RUNNERS can
+    be shown as a multiple of that baseline. Multiples come from sampled prices, not executable trades.
+  * After every play alert the bot tracks 5/15/30/60/240 min (price, liquidity, holders, volume, died/rugged)
+    and uses it, transparently and with safeguards, to nudge scoring weights. Nothing is bought or sold.
 
 Setup:   pip install requests
-Env:     DISCORD_WEBHOOK_URL   channel webhook                              [unchanged]
-         SOLANA_RPC_URL        optional Helius/QuickNode endpoint            [unchanged]
-         DEBUG_EMBED=1         add scores/fits/risk detail to embeds
-         CA_TEXT=1             ALSO post the CA as plain message text (easier to copy on some phones)
-         JUPITER_QUOTE_URL / JUPITER_API_KEY   optional, for the sell-route check
+Env:     the three webhooks above, plus (optional) SOLANA_RPC_URL, DEBUG_EMBED=1, CA_IN_EMBED=1,
+         JUPITER_QUOTE_URL / JUPITER_API_KEY (sell-route check)
 Run:     python memecoin_bot.py                  runs forever
-         python memecoin_bot.py --max-minutes N  run N minutes, save state, exit (GitHub Actions)
-         python memecoin_bot.py --test           send 4 fake sample embeds (one per play type)
+         python memecoin_bot.py --max-minutes N  run N minutes, save state, exit
+         python memecoin_bot.py --test           send sample posts to each configured channel (fake tokens)
          python memecoin_bot.py --report         outcomes by category + what the bot has learned
          python memecoin_bot.py --probe MINT     show what is read from RugCheck/DexScreener for a token
 Optional: themes.json  ({"Theme": ["keyword", ...]}) replaces the built-in narrative themes.
@@ -55,9 +61,12 @@ GECKO_HEADERS = {"Accept": "application/json;version=20230302"}
 RUGCHECK = "https://api.rugcheck.xyz/v1"  # third-party public endpoints: can change or rate-limit
 JUPITER_QUOTE = os.getenv("JUPITER_QUOTE_URL") or "https://lite-api.jup.ag/swap/v1/quote"
 JUPITER_KEY = os.getenv("JUPITER_API_KEY")
-DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")  # keep secret
+DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")                  # #signals (keep secret)
+RADAR_WEBHOOK = os.getenv("DISCORD_RADAR_WEBHOOK_URL")              # #radar
+HEARTBEAT_WEBHOOK = os.getenv("DISCORD_HEARTBEAT_WEBHOOK_URL")      # #heartbeat
+VERSION = "RADAR-3.0"
 DEBUG_EMBED = os.getenv("DEBUG_EMBED") == "1" or "--debug" in sys.argv
-CA_TEXT = os.getenv("CA_TEXT") == "1"
+CA_IN_EMBED = os.getenv("CA_IN_EMBED") == "1"   # ALSO add the CA as a field at the bottom of play embeds
 
 SOL_MINT = "So11111111111111111111111111111111111111112"
 STABLES = {SOL_MINT, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"}
@@ -104,7 +113,7 @@ class Config:
     authority_recheck_s: float = 600
     use_sell_check: bool = True
     sell_check_usd: float = 20
-    # ---- alert rules
+    # ---- plays (#signals)
     signal_threshold: float = 68            # base Mind Score; moves with market conditions
     thr_offset: dict = field(default_factory=lambda: {"QUICK SCALP": 0, "MOMENTUM": 0, "NARRATIVE META": -4, "EARLY GEM": -6})
     min_observations: int = 3
@@ -113,24 +122,26 @@ class Config:
     min_data_coverage: float = 0.6
     max_alerts_per_token: int = 3           # first alert + up to 2 updates
     update_cooldown_s: float = 600
-    idle_notice_minutes: float = 60         # post "NO QUALITY PLAYS RIGHT NOW." at most this often (0 = never)
+    update_on_invalidation: bool = False    # price-based "INVALIDATED" updates are off (this is a radar, not a stop-loss)
+    # ---- radar feed (#radar): max posts per hour per section (keeps it readable)
+    radar_early_per_hour: int = 15
+    radar_runner_per_hour: int = 10
+    radar_trending_per_hour: int = 10
+    radar_lane_per_hour: int = 10
+    runner_multiples: tuple = (2, 3, 5, 10, 20, 50)
+    baseline_keep_hours: float = 72
+    # ---- heartbeat (#heartbeat)
+    heartbeat_minutes: float = 30
     # ---- hard vetoes (safety overrides score)
     veto_top10_pct: float = 65
     veto_insider_pct: float = 40
     veto_liq_drop_10m: float = 0.50
     veto_liq_mcap: float = 0.008
-    # ---- paper trading / risk management (unchanged behaviour)
-    position_size_usd: float = 25
-    take_profit: float = 0.50
-    stop_loss: float = 0.20
-    max_hold_min: float = 360
-    max_open_positions: int = 10            # caps PAPER positions only; it never blocks alerts
-    max_daily_loss_usd: float = 50
-    no_price_exit_min: float = 10
-    # ---- learning
+    # ---- outcome tracking / learning (no trading)
+    dead_no_price_min: float = 10
     learn_min_samples: int = 30
     # ---- files
-    log_file: str = "paper_trades.csv"
+    log_file: str = "radar_log.csv"
     signals_file: str = "signals.jsonl"
     state_file: str = "state.json"
 
@@ -279,25 +290,32 @@ def parse_iso_ms(s):
 # =====================================================================================
 # Discord
 # =====================================================================================
-def notify(embed: dict, content: str = ""):
-    """Post one embed (plus optional plain message text) via webhook. Never breaks the bot."""
-    if not DISCORD_WEBHOOK:
-        print("[warn] DISCORD_WEBHOOK_URL not set; skipping alert")
-        return
+def ca_block(mint: str) -> str:
+    """CA as a Discord code block in the plain message text (above the embed): easiest thing to copy on a phone."""
+    return f"```\n{mint}\n```"
+
+
+def notify(embed: dict, content: str = "", hook=None) -> bool:
+    """Post one embed (plus optional plain message text) via a webhook. Never breaks the bot."""
+    url = hook or DISCORD_WEBHOOK
+    if not url:
+        return False
     payload = {"embeds": [embed]}
     if content:
         payload["content"] = content
     try:
         for _ in range(2):  # one retry if rate limited
-            r = requests.post(DISCORD_WEBHOOK, json=payload, timeout=10)
+            r = requests.post(url, json=payload, timeout=10)
             if r.status_code == 429:
                 time.sleep(float(r.json().get("retry_after", 1)))
                 continue
             if r.status_code >= 400:
                 print(f"[warn] discord returned {r.status_code}: {r.text[:200]}")
-            break
+                return False
+            return True
     except Exception as e:
         print(f"[warn] discord notify failed: {e}")
+    return False
 
 
 # =====================================================================================
@@ -382,22 +400,28 @@ class Candidate:
     alert_n: int = 0
     invalid_price: Optional[float] = None
     invalidated: bool = False
+    alerted: bool = False
+    # radar feed state
+    trend_rank: Optional[int] = None
+    trend_posted: bool = False
+    early_posted: bool = False
+    final_posted: bool = False
+    migr_posted: bool = False
+    runner_done: int = 0
 
 
 @dataclass
 class Signal:
+    """An alerted play whose outcome is being tracked (no trade is ever placed)."""
     mint: str
     symbol: str
     entry_price: float
     t0: float
     url: str
-    size_usd: float
     score: float
     subs: dict
     risk: float
     entry: dict
-    paper: bool = True
-    learn_done: bool = False
     checkpoints: dict = field(default_factory=dict)
     max_up: float = 0.0
     max_dd: float = 0.0
@@ -406,6 +430,9 @@ class Signal:
     theme: str = ""
     horizon: int = 60
     invalid_price: Optional[float] = None
+    learn_done: bool = False
+    size_usd: float = 0.0     # legacy field from older versions
+    paper: bool = False       # legacy field from older versions
 
 
 # =====================================================================================
@@ -1212,11 +1239,17 @@ def classify_play(c: Candidate, now: float, cfg: Config, thr: float, learner) ->
     fits["EARLY GEM"] = wavg([(g("holders"), .22), (g("organic"), .20), (g("continuation"), .14), (g("liquidity"), .14),
                               (g("distribution"), .10), (g("insiders"), .10), (g("volume"), .10)])
     scores = {k: play_score(fits[k], c.risk, c.coverage) for k in CATS if elig[k] and fits[k] is not None}
-    margins = {k: s - (thr + cfg.thr_offset.get(k, 0)) for k, s in scores.items()}
+    margins = {k: sc - (thr + cfg.thr_offset.get(k, 0)) for k, sc in scores.items()}
     out.update(fits={k: (None if v is None else round(v, 1)) for k, v in fits.items()}, scores={k: round(v, 1) for k, v in scores.items()},
                near=max(margins.values()) if margins else None)
-    best = max(margins, key=lambda k: (margins[k], -CATS.index(k))) if margins else None
-    if best is None or margins[best] < 0:
+
+    def pick(group):
+        qual = {k: margins[k] for k in group if k in margins and margins[k] >= 0}
+        return max(qual, key=lambda k: (qual[k], -CATS.index(k))) if qual else None
+
+    # QUICK SCALP / MOMENTUM / NARRATIVE META are specific theses; EARLY GEM is the "keep watching" fallback.
+    best = pick(("QUICK SCALP", "MOMENTUM", "NARRATIVE META")) or pick(("EARLY GEM",))
+    if best is None:
         return out
     parts = compose_play(best, c, f, narr, mom, org, track, gem_hits)
     out.update(category=best, score=scores[best], **parts,
@@ -1331,6 +1364,27 @@ def narrative_text(c: Candidate, track) -> str:
     return "\n".join(lines)[:1000]
 
 
+RADAR_STYLE = {"EARLY RADAR": ("🛰️", 0x3498DB), "RUNNER": ("🏃", 0xE67E22), "TRENDING": ("🔥", 0xE74C3C),
+               "FINAL STRETCH": ("🏁", 0xF1C40F), "MIGRATED": ("🎓", 0x2ECC71)}
+
+
+def ago(seconds: float) -> str:
+    m = max(0, int(seconds // 60))
+    return f"{m} min" if m < 120 else f"{m / 60:.1f} h"
+
+
+def links_text(c: Candidate) -> str:
+    links = [f"[Chart]({c.url})"] if c.url else []
+    links.append(f"[RugCheck](https://rugcheck.xyz/tokens/{c.mint})")
+    for w in (c.info.get("websites") or []):
+        if w.get("url"):
+            links.append(f"[{w.get('label') or 'Website'}]({w['url']})")
+    for x in (c.info.get("socials") or []):
+        if x.get("url"):
+            links.append(f"[{(x.get('type') or 'link').title()}]({x['url']})")
+    return " • ".join(links)[:1000]
+
+
 def build_play_embed(c: Candidate, cfg: Config, thr: float, learner, debug: bool = False) -> dict:
     p, s, f = c.play, c.snaps[-1], c.f
     cat = p["category"]
@@ -1343,14 +1397,6 @@ def build_play_embed(c: Candidate, cfg: Config, thr: float, learner, debug: bool
     holders = "n/a" if f["holders"] is None else f"{f['holders']:,}" + (f" ({f['holders_growth_hr']:+.0f}%/h)" if f["holders_growth_hr"] is not None else "")
     top = "n/a" if f["top10"] is None else f"{f['top10']:.0f}% / " + ("n/a" if f["top1"] is None else f"{f['top1']:.0f}%")
     ins = "n/a" if f["insider"] is None else f"{f['insider']:.0f}%"
-    links = [f"[Chart]({c.url})"] if c.url else []
-    links.append(f"[RugCheck](https://rugcheck.xyz/tokens/{c.mint})")
-    for w in (c.info.get("websites") or []):
-        if w.get("url"):
-            links.append(f"[{w.get('label') or 'Website'}]({w['url']})")
-    for x in (c.info.get("socials") or []):
-        if x.get("url"):
-            links.append(f"[{(x.get('type') or 'link').title()}]({x['url']})")
     track = learner.theme_record((c.narr or {}).get("theme")) if (c.narr or {}).get("clear") else None
     lane = f.get("lane_text")
     fields = [
@@ -1371,7 +1417,7 @@ def build_play_embed(c: Candidate, cfg: Config, thr: float, learner, debug: bool
         {"name": "On-chain", "value": on_chain_text(c), "inline": False},
         {"name": "Risk", "value": p["risk"][:500], "inline": False},
         {"name": "Invalidation", "value": p["invalidation"][:500], "inline": False},
-        {"name": "Links", "value": " • ".join(links)[:1000], "inline": False},
+        {"name": "Links", "value": links_text(c), "inline": False},
     ]
     if debug:
         order = sorted(c.subs.items(), key=lambda kv: -(kv[1] if kv[1] is not None else -1))
@@ -1379,13 +1425,14 @@ def build_play_embed(c: Candidate, cfg: Config, thr: float, learner, debug: bool
             "fits: " + ", ".join(f"{k} {v}" for k, v in p["fits"].items() if v is not None)
             + f"\nscores: {p['scores']}\nrisk {c.risk:.0f} ({'; '.join(c.risk_notes) or 'no flags'}) • coverage {c.coverage:.0%} • thr {thr:.0f}"
             + "\n" + ", ".join(f"{k} {'n/a' if v is None else f'{v:.0f}'}" for k, v in order))[:1000], "inline": False})
-    fields.append({"name": "CA", "value": f"```{c.mint}```", "inline": False})   # bottom of the embed
+    if CA_IN_EMBED:
+        fields.append({"name": "CA", "value": f"```{c.mint}```", "inline": False})
     embed = {
         "title": f"{emoji} {cat} — {c.symbol}"[:256],
         "description": ((f"*{lane}*\n" if lane else "") + f"**Thesis:** {p['thesis']}")[:1500],
         "color": color,
         "fields": fields,
-        "footer": {"text": f"Paper TP +{cfg.take_profit:.0%} / SL -{cfg.stop_loss:.0%} • Not financial advice"},
+        "footer": {"text": "Research lead, not a recommendation • Not financial advice"},
         "timestamp": now_iso(),
     }
     if c.url:
@@ -1406,26 +1453,98 @@ def build_update_embed(c: Candidate, cfg: Config, kind: str, text: str, entry_pr
     ]
     if p.get("score") is not None:
         fields.insert(0, {"name": "Mind Score", "value": f"**{p['score']:.0f}/100**", "inline": True})
-    fields.append({"name": "CA", "value": f"```{c.mint}```", "inline": False})
+    if CA_IN_EMBED:
+        fields.append({"name": "CA", "value": f"```{c.mint}```", "inline": False})
     return {"title": f"{emoji} UPDATE — {c.symbol}: {kind}", "description": text[:900], "color": color, "fields": fields,
             "footer": {"text": "Classification changed with new data • Not financial advice"}, "timestamp": now_iso()}
 
 
-def build_exit_embed(sig: Signal, price: float, pnl: float, reason: str) -> dict:
-    change = price / sig.entry_price - 1 if sig.entry_price else 0
-    return {
-        "title": f"EXIT: {sig.symbol} ({reason.replace('_', ' ')})",
-        "color": 0x2ECC71 if pnl >= 0 else RED,
-        "fields": [
-            {"name": "Entry", "value": price_str(sig.entry_price), "inline": True},
-            {"name": "Now", "value": price_str(price) if price else "no price (possible rug)", "inline": True},
-            {"name": "Change", "value": f"{change:+.1%}", "inline": True},
-            {"name": "Paper PnL", "value": f"${pnl:.2f} on ${sig.size_usd:.0f} (ignores fees/slippage)", "inline": False},
-            {"name": "CA", "value": f"```{sig.mint}```", "inline": False},
-        ],
-        "footer": {"text": "Paper result. Real trades do worse after fees and slippage."},
-        "timestamp": now_iso(),
-    }
+def risk_line(c: Candidate) -> str:
+    rc, f = c.rc or {}, c.f
+    bits = ["Authorities ✅" if c.authority is True else "Authorities ❔"]
+    if rc.get("ok"):
+        bits.append("RugCheck clear" if not (rc.get("danger_risks") or 0) else f"RugCheck {rc['danger_risks']} flag")
+    else:
+        bits.append("RugCheck ❔")
+    if f.get("top10") is not None:
+        bits.append(f"Top 10 {f['top10']:.0f}%")
+    if f.get("insider") is not None:
+        bits.append(f"Insiders {f['insider']:.0f}%")
+    if f.get("lp_locked") is not None:
+        bits.append(f"LP {f['lp_locked']:.0f}%")
+    text = " • ".join(bits)
+    if c.authority is not True or not rc.get("ok"):
+        text += "\nMissing or outdated checks mean the risk is unknown."
+    return text[:1000]
+
+
+def build_radar_embed(kind: str, c: Candidate, base: Optional[dict], now: float, note: str) -> dict:
+    s, f = c.snaps[-1], c.f
+    emoji, color = RADAR_STYLE[kind]
+    br = f.get("br_h1")
+    buys = f"{f['buys_h1']} / {f['sells_h1']}" + (f" ({br:.0%})" if br is not None else "")
+    holders = "n/a" if f.get("holders") is None else f"{f['holders']:,}"
+    fields = [
+        {"name": "Price", "value": price_str(s.price), "inline": True},
+        {"name": "Market cap", "value": usd(s.mcap), "inline": True},
+        {"name": "Liquidity", "value": usd(s.liq), "inline": True},
+        {"name": "1h volume", "value": usd(s.vol_h1), "inline": True},
+        {"name": "Buys / sells (1h)", "value": buys, "inline": True},
+        {"name": "Holders", "value": holders, "inline": True},
+        {"name": "Risk checks", "value": risk_line(c), "inline": False},
+    ]
+    if base and base.get("p"):
+        mult = s.price / base["p"]
+        fields.append({"name": "Quotes (sampled prices)", "inline": False,
+                       "value": f"First {price_str(base['p'])} (<t:{int(base['t'])}:R>) → latest {price_str(s.price)} (<t:{int(s.t)}:R>) = **{mult:.2f}×**"})
+    fields.append({"name": "Links", "value": links_text(c), "inline": False})
+    play = (c.play or {}).get("category")
+    footer = "Research lead, not a recommendation or a safety guarantee • Compare the full CA"
+    if play in CATS:
+        footer = f"Current read: {play} • " + footer
+    embed = {"title": f"{emoji} {kind} — {c.symbol}"[:256], "description": note[:1200], "color": color, "fields": fields,
+             "footer": {"text": footer[:2000]}, "timestamp": now_iso()}
+    if c.url:
+        embed["url"] = c.url
+    if c.icon:
+        embed["thumbnail"] = {"url": c.icon}
+    return embed
+
+
+def build_heartbeat_embed(bot: "Bot", now: float) -> dict:
+    st, lanes = bot.stats, bot.lane_counts()
+    tiers = Counter(c.tier for c in bot.cands.values())
+    radar_total = sum(st[k] for k in ("radar_early", "radar_runner", "radar_trending", "radar_lane"))
+    qualifying = sum(1 for c in bot.cands.values() if (c.play or {}).get("category") in CATS and not c.alerted)
+    near = []
+    for c in bot.near_misses(3):
+        p = c.play or {}
+        near.append(f"{c.symbol}: {p.get('category', 'n/a')} • mind {c.score:.0f} • " + ("; ".join(c.blockers[:2]) or "building history"))
+    blockers = bot.blockers()
+    board = ", ".join(f"{name} ({heat:.0f})" for heat, name, _ in bot.narr.board(3)) or "no confirmed theme groups yet"
+    r = bot.regime
+    fields = [
+        {"name": "Scanner", "inline": False,
+         "value": f"{st['discovered']:,} discovered | {st['light_scans']:,} light scans | {st['signals']} play alerts | {radar_total} radar posts"},
+        {"name": "Lanes (watching now)", "inline": False,
+         "value": f"NEW PAIRS: {lanes['NEW PAIR']} | FINAL STRETCH: {lanes['FINAL STRETCH']} | MIGRATED: {lanes['MIGRATED']}"},
+        {"name": "States", "inline": False,
+         "value": (f"STRONG: {tiers['strong']} | NEW: {tiers['new']} | WATCH: {tiers['watch']} | WEAK: {tiers['weak']} | "
+                   f"SAFETY_REJECTED: {st['vetoed']} | EXPIRED: {max(0, st['dropped'] - st['vetoed'])}")},
+        {"name": "Radar feed (this run)", "inline": False,
+         "value": (f"EARLY: {st['radar_early']} | RUNNERS: {st['radar_runner']} | TRENDING: {st['radar_trending']} | "
+                   f"FINAL STRETCH / MIGRATED: {st['radar_lane']}")},
+        {"name": "Plays", "inline": False,
+         "value": ("NO QUALITY PLAYS RIGHT NOW." if not qualifying else f"{qualifying} qualifying right now")
+                  + ("\nClosest: " + " | ".join(near) if (near and not qualifying) else "")},
+        {"name": "Current meta (hottest groups)", "inline": False, "value": board[:500]},
+        {"name": "Blockers", "inline": False, "value": ("\n".join(blockers) if blockers else "No current blocker")[:900]},
+    ]
+    return {"title": "💓 RADAR HEARTBEAT", "description": f"Scanner status — {VERSION}. This is not a coin alert.",
+            "color": 0xE91E63, "fields": fields,
+            "footer": {"text": (f"Up {ago(now - bot.started)} • market heat {r['heat']:.2f}{'' if r['known'] else ' (not enough data yet)'} • "
+                                "Rule-based models | prospective results, no established success rate")[:2000]},
+            "timestamp": now_iso()}
 
 
 # =====================================================================================
@@ -1435,14 +1554,13 @@ class Bot:
     def __init__(self, cfg: Config, clock=time.time):
         self.cfg, self.clock = cfg, clock
         self.cands: dict = {}
-        self.signals: dict = {}
+        self.signals: dict = {}           # alerted plays whose outcome is still being tracked
         self.seen: dict = {}              # mint -> do not re-add before this time
         self.learner = Learner(cfg)
         self.narr = Narrative(cfg, load_themes())
         self.sent_times = deque()
-        self.realized_pnl_today = 0.0
-        self.day = time.strftime("%F")
-        self.limit_notified_day = None
+        self.baselines: dict = {}         # mint -> first quote the radar recorded (retained across restarts)
+        self.radar_times = defaultdict(deque)
         self.sched = defaultdict(float)
         self._narr_next = self._regime_next = self._status_next = self._save_next = 0.0
         self.pool = ThreadPoolExecutor(cfg.workers) if cfg.workers > 0 else None
@@ -1455,7 +1573,7 @@ class Bot:
         self._lane_i = 0
         self.started = clock()
         self.last_alert_t = 0.0
-        self.last_idle_t = 0.0
+        self.last_heartbeat_t = 0.0
         self.stop = False
         self.stats = Counter()
 
@@ -1463,23 +1581,18 @@ class Bot:
     def init_files(self):
         if not os.path.exists(self.cfg.log_file):
             with open(self.cfg.log_file, "w", newline="") as fh:
-                csv.writer(fh).writerow(["time", "action", "symbol", "mint", "price", "pnl_usd", "reason"])
+                csv.writer(fh).writerow(["time", "event", "symbol", "mint", "price", "detail"])
         if not os.path.exists(self.cfg.signals_file):
             open(self.cfg.signals_file, "w").close()
 
-    def log_csv(self, action, symbol, mint, price, pnl=0.0, reason=""):
+    def log_csv(self, event, symbol, mint, price, detail=""):
         with open(self.cfg.log_file, "a", newline="") as fh:
-            csv.writer(fh).writerow([time.strftime("%F %T"), action, symbol, mint, price, round(pnl, 2), reason])
-        print(f"[{action}] {symbol} @ {price} pnl={pnl:.2f} {reason}")
+            csv.writer(fh).writerow([time.strftime("%F %T"), event, symbol, mint, price, detail])
+        print(f"[{event}] {symbol} @ {price} {detail}")
 
     def jlog(self, rec: dict):
         with open(self.cfg.signals_file, "a") as fh:
             fh.write(json.dumps(rec, default=str) + "\n")
-
-    def roll_day(self, now):
-        today = time.strftime("%F", time.gmtime(now))
-        if today != self.day:
-            self.day, self.realized_pnl_today = today, 0.0
 
     def submit(self, fn, *a):
         if self.pool:
@@ -1541,10 +1654,16 @@ class Bot:
         return fetch_gecko_dex_pools(ids[self._lane_i % len(ids)], 1 + (self._lane_i // len(ids)) % 2)
 
     # ---------- discovery ----------
+    @staticmethod
+    def tag_rank(items):
+        for i, it in enumerate(items or []):
+            it["rank"] = i + 1
+        return items
+
     def discover(self, now):
         c = self.cfg
         jobs = (("gecko_new", c.discovery_gecko_new_s, lambda: fetch_gecko_pools("new_pools")),
-                ("gecko_trend", c.discovery_gecko_trending_s, lambda: fetch_gecko_pools("trending_pools")),
+                ("gecko_trend", c.discovery_gecko_trending_s, lambda: self.tag_rank(fetch_gecko_pools("trending_pools"))),
                 ("lane_final", c.discovery_final_s, lambda: self.lane_pools("final")),
                 ("lane_migrated", c.discovery_migrated_s, lambda: self.lane_pools("migrated")),
                 ("dex_profiles", c.discovery_dex_profiles_s, lambda: fetch_dex_feed("/token-profiles/latest/v1")),
@@ -1581,6 +1700,8 @@ class Bot:
             c.links = it["links"]
         if it.get("buyers_h1") is not None:
             c.buyers_h1, c.sellers_h1 = it.get("buyers_h1"), it.get("sellers_h1")
+        if it.get("rank"):
+            c.trend_rank = it["rank"]
         sn = it.get("snap")
         if sn is not None and (not c.snaps or sn.t - c.snaps[-1].t >= 5):
             self.add_snap(c, sn, now)
@@ -1616,8 +1737,10 @@ class Bot:
                 self.grad_obs = (self.grad_obs + [s.mcap])[-50:]  # learn the real migration size
             c.hot_until = now + 300
         c.snaps.append(s)
+        self.stats["light_scans"] += 1
         if c.first_snap is None:
             c.first_snap, c.first_dex = s, s.dex
+            self.baselines.setdefault(c.mint, {"p": s.price, "t": now, "sym": c.symbol})   # first quote, retained
         c.peak_price = max(c.peak_price, s.price)
         c.dex = s.dex or c.dex
         if prev and prev.price > 0:   # event triggers: important data changed -> re-check soon, re-verify safety
@@ -1807,23 +1930,20 @@ class Bot:
                 c.dirty = False
                 if self.evaluate(c, now):
                     self.consider_signal(c, now)
+                    self.radar_check(c, now)
 
-    # ---------- alerts ----------
+    # ---------- plays (#signals) ----------
     def consider_signal(self, c: Candidate, now: float):
         cfg, f, p, reg, b = self.cfg, c.f, c.play, self.regime, []
         if c.signaled:
             return self.maybe_update(c, now)
+        if c.alerted:
+            return
         cat = p["category"]
         if cat in ("AVOID", "NO PLAY"):
             c.blockers = [("avoid: " + "; ".join(p["avoid"][:1])) if cat == "AVOID" else
-                          (f"no play qualified" + (f" (closest {p['near']:+.0f} vs threshold)" if p.get("near") is not None else ""))]
+                          ("no play qualified" + (f" (closest {p['near']:+.0f} vs threshold)" if p.get("near") is not None else ""))]
             return
-        if self.realized_pnl_today <= -cfg.max_daily_loss_usd:
-            b.append("daily paper-loss limit")
-            if self.limit_notified_day != self.day:
-                self.limit_notified_day = self.day
-                notify({"title": "Daily paper-loss limit reached",
-                        "description": "Alerts are paused until UTC midnight (risk management).", "color": RED})
         if len(c.snaps) < cfg.min_observations or now - c.first_seen < cfg.min_observe_seconds:
             b.append("still observing")
         if f["age_min"] < cfg.min_pair_age_min:
@@ -1847,28 +1967,28 @@ class Bot:
 
     def fire_signal(self, c: Candidate, now: float):
         cfg, s, f, p = self.cfg, c.snaps[-1], c.f, c.play
-        paper = sum(1 for x in self.signals.values() if x.paper) < cfg.max_open_positions
         theme = (c.narr or {}).get("theme") if (c.narr or {}).get("clear") else ""
-        sig = Signal(mint=c.mint, symbol=c.symbol, entry_price=s.price, t0=now, url=c.url, size_usd=cfg.position_size_usd,
-                     score=p["score"], subs=dict(c.subs), risk=c.risk, paper=paper, category=p["category"], theme=theme or "",
+        sig = Signal(mint=c.mint, symbol=c.symbol, entry_price=s.price, t0=now, url=c.url, score=p["score"],
+                     subs=dict(c.subs), risk=c.risk, category=p["category"], theme=theme or "",
                      horizon=HORIZON_CP[p["category"]], invalid_price=p["invalid_price"],
                      entry={"liq": s.liq, "vol_h1": s.vol_h1, "mcap": s.mcap, "holders": f["holders"],
                             "top10": f["top10"], "insider": f["insider"]})
         self.signals[c.mint] = sig
-        c.signaled, c.tier = True, "strong"
+        c.signaled = c.alerted = True
+        c.tier = "strong"
         c.alert_cat, c.alert_t, c.alert_n, c.invalid_price = p["category"], now, 1, p["invalid_price"]
         self.seen[c.mint] = now + POSTED_SECONDS
         self.sent_times.append(now)
         self.last_alert_t = now
         self.stats["signals"] += 1
-        self.log_csv("SIGNAL", c.symbol, c.mint, s.price, reason=p["category"])
+        self.log_csv("PLAY", c.symbol, c.mint, s.price, p["category"])
         self.jlog({"type": "signal", "t": now_iso(), "mint": c.mint, "symbol": c.symbol, "category": p["category"],
                    "price": s.price, "score": round(p["score"], 2), "confidence": p["confidence"], "horizon": p["horizon"],
                    "coverage": round(c.coverage, 3), "risk": round(c.risk, 1), "risk_notes": c.risk_notes, "subs": c.subs,
                    "fits": p["fits"], "play_scores": p["scores"], "features": c.f, "narrative": c.narr,
                    "thesis": p["thesis"], "why": p["why"], "risk_text": p["risk"], "invalidation": p["invalidation"],
-                   "threshold": self.regime["threshold"], "heat": self.regime["heat"], "paper": paper})
-        notify(build_play_embed(c, cfg, self.regime["threshold"], self.learner, DEBUG_EMBED), content=f"`{c.mint}`" if CA_TEXT else "")
+                   "threshold": self.regime["threshold"], "heat": self.regime["heat"]})
+        notify(build_play_embed(c, cfg, self.regime["threshold"], self.learner, DEBUG_EMBED), content=ca_block(c.mint))
 
     def maybe_update(self, c: Candidate, now: float):
         """An alerted token is still being judged: tell the user if the classification materially changes."""
@@ -1879,54 +1999,112 @@ class Bot:
         cat, msg = p["category"], None
         if cat == "AVOID" and c.alert_cat != "AVOID":
             msg = ("AVOID", "Classification changed to AVOID: " + "; ".join(p["avoid"][:2]) + ".")
-        elif not c.invalidated and c.invalid_price and s.price < c.invalid_price:
+        elif cfg.update_on_invalidation and not c.invalidated and c.invalid_price and s.price < c.invalid_price:
             c.invalidated = True
             msg = ("INVALIDATED", f"Price {price_str(s.price)} broke the invalidation level {price_str(c.invalid_price)}; the setup no longer holds.")
         elif cat in CATS and cat != c.alert_cat and now - c.alert_t >= cfg.update_cooldown_s:
             msg = (cat, f"Evidence changed: {c.alert_cat} → {cat}. {p['thesis']}")
             c.invalid_price, sig.category, sig.invalid_price = p["invalid_price"], cat, p["invalid_price"]
         if msg:
-            c.alert_cat = msg[0] if msg[0] in CATS or msg[0] == "AVOID" else c.alert_cat
+            c.alert_cat = msg[0] if (msg[0] in CATS or msg[0] == "AVOID") else c.alert_cat
             c.alert_t, c.alert_n, self.last_alert_t = now, c.alert_n + 1, now
             self.jlog({"type": "update", "t": now_iso(), "mint": c.mint, "symbol": c.symbol, "kind": msg[0], "text": msg[1]})
-            notify(build_update_embed(c, cfg, msg[0], msg[1], sig.entry_price), content=f"`{c.mint}`" if CA_TEXT else "")
+            notify(build_update_embed(c, cfg, msg[0], msg[1], sig.entry_price), content=ca_block(c.mint))
 
-    def maybe_idle_notice(self, now):
-        m = self.cfg.idle_notice_minutes
-        if m <= 0 or now - self.started < m * 60 or now - max(self.last_alert_t, self.last_idle_t) < m * 60:
+    # ---------- radar feed (#radar) ----------
+    def radar_allowed(self, section: str, now: float) -> bool:
+        cap = {"early": self.cfg.radar_early_per_hour, "runner": self.cfg.radar_runner_per_hour,
+               "trending": self.cfg.radar_trending_per_hour, "lane": self.cfg.radar_lane_per_hour}[section]
+        dq = self.radar_times[section]
+        while dq and dq[0] < now - 3600:
+            dq.popleft()
+        return len(dq) < cap
+
+    def radar_post(self, kind: str, section: str, c: Candidate, now: float, note: str) -> bool:
+        if not self.radar_allowed(section, now):
+            return False
+        ok = notify(build_radar_embed(kind, c, self.baselines.get(c.mint), now, note), content=ca_block(c.mint), hook=RADAR_WEBHOOK)
+        if ok:
+            self.radar_times[section].append(now)
+            self.stats[f"radar_{section}"] += 1
+            self.jlog({"type": "radar", "t": now_iso(), "kind": kind, "mint": c.mint, "symbol": c.symbol, "price": c.snaps[-1].price})
+            print(f"[RADAR {kind}] {c.symbol}")
+        return ok
+
+    def radar_check(self, c: Candidate, now: float):
+        """Coin feed in the style of Early Radar / Runners / Trending watch / Pump.fun migration sections."""
+        if not RADAR_WEBHOOK or not c.snaps or c.dead_reason or c.vetoes or c.risk > self.cfg.max_risk:
             return
-        self.last_idle_t = now
-        notify(self.build_idle_embed(now))
+        cfg, f, s = self.cfg, c.f, c.snaps[-1]
+        liq_ok = (s.liq or 0) >= cfg.gate_liquidity_usd
+        verified = c.authority is True and bool(c.rc.get("ok")) and now - c.rc_ok_t <= 900
+        base = self.baselines.get(c.mint)
+        # TRENDING WATCH: first time it shows up in the Solana trending pools
+        if c.trend_rank and not c.trend_posted and liq_ok:
+            seen_for = now - c.first_seen
+            first = "First seen by this radar just now." if seen_for < 120 else f"This radar first saw it {ago(seen_for)} ago."
+            c.trend_posted = self.radar_post("TRENDING", "trending", c, now,
+                                             f"Rank #{c.trend_rank} in GeckoTerminal's Solana trending pools. {first} "
+                                             "Trending rank measures visibility in that feed, not safety or future performance.")
+        # RUNNERS: multiple of the first quote the radar recorded
+        if base and base.get("p") and liq_ok and now - base["t"] >= 120:
+            mult = s.price / base["p"]
+            reached = sum(1 for m in cfg.runner_multiples if mult >= m)
+            if reached > c.runner_done:
+                if self.radar_post("RUNNER", "runner", c, now,
+                                   f"Up **{mult:.1f}×** from the first quote this radar recorded ({ago(now - base['t'])} ago). "
+                                   "Based on sampled prices; not proof anyone could buy and sell at them."):
+                    c.runner_done = reached
+        # FINAL STRETCH / MIGRATED
+        lanes = f.get("lanes") or []
+        if "FINAL STRETCH" in lanes and not c.final_posted and (s.vol_h1 or 0) >= 2_000:
+            c.final_posted = self.radar_post("FINAL STRETCH", "lane", c, now,
+                                             f"Pump.fun bonding curve is ≈{min(f['bond_progress'], 1.0):.0%} full (estimated against a ~${self.grad_mcap():,.0f} "
+                                             "migration size). Migration alone does not establish safety or predict a price increase.")
+        if "MIGRATED" in lanes and not c.migr_posted and liq_ok:
+            how = "observed migrating" if c.migrated_t is not None else "its PumpSwap pool age suggests a recent migration"
+            c.migr_posted = self.radar_post("MIGRATED", "lane", c, now,
+                                            f"Migrated ~{f['mig_min']:.0f} min ago ({how}). Migration alone does not establish safety or predict a price increase.")
+        # EARLY RADAR: newly observed token that passed the basic checks
+        if (not c.early_posted and verified and liq_ok and f["age_min"] >= cfg.min_pair_age_min and len(c.snaps) >= 3
+                and (s.vol_h1 or 0) >= cfg.gate_volume_h1_usd):
+            read = (c.play or {}).get("category")
+            c.early_posted = self.radar_post("EARLY RADAR", "early", c, now,
+                                             f"Newly observed token that passed the basic checks (authorities revoked, no RugCheck danger flags). "
+                                             f"Current read: **{read if read in CATS else 'no play yet, watching'}**. A research lead, not a recommendation.")
 
+    # ---------- heartbeat (#heartbeat) ----------
     def lane_counts(self):
         return Counter(l for c in self.cands.values() for l in (c.f.get("lanes") or []))
 
     def near_misses(self, n=3):
-        rows = [(c.play.get("near"), c) for c in self.cands.values() if c.play and c.play.get("near") is not None and not c.signaled]
-        rows += [(None, c) for c in sorted((c for c in self.cands.values() if c.score is not None and not c.signaled and
-                                            not (c.play or {}).get("near") is not None), key=lambda c: -c.score)[:n]]
-        rows.sort(key=lambda r: (r[0] is None, -(r[0] or 0)))
-        return [c for _, c in rows[:n]]
+        rows = [c for c in self.cands.values() if c.score is not None and not c.alerted and c.snaps]
+        return sorted(rows, key=lambda c: -c.score)[:n]
 
-    def build_idle_embed(self, now) -> dict:
-        lanes, r = self.lane_counts(), self.regime
-        scanned = (f"Monitoring {len(self.cands)} tokens • new pairs {lanes['NEW PAIR']} • final stretch {lanes['FINAL STRETCH']} • "
-                   f"migrated {lanes['MIGRATED']}\nDiscovered this run: {self.stats['discovered']} • rejected: {self.stats['vetoed']} unsafe")
-        watch = []
-        for c in self.near_misses(3):
-            p = c.play or {}
-            watch.append(f"{c.symbol}: {p.get('category', 'n/a')} • " + ("; ".join(c.blockers[:2]) or "building history"))
-        board = ", ".join(f"{name} ({heat:.0f})" for heat, name, _ in self.narr.board(3)) or "no confirmed theme groups yet"
-        fields = [{"name": "Scanning", "value": scanned[:1000], "inline": False},
-                  {"name": "Closest candidates", "value": ("\n".join(watch) or "none worth watching")[:1000], "inline": False},
-                  {"name": "Current meta (hottest groups)", "value": board[:500], "inline": False}]
-        return {"title": "NO QUALITY PLAYS RIGHT NOW.", "description": "Scanning continues every minute. Nothing met the quality bar.",
-                "color": 0x95A5A6, "fields": fields,
-                "footer": {"text": f"Market heat {r['heat']:.2f}{'' if r['known'] else ' (not enough data yet)'} • alert threshold {r['threshold']:.0f}"},
-                "timestamp": now_iso()}
+    def blockers(self):
+        out, t = [], time.time()
+        for host, lim in LIMITERS.items():
+            if lim.blocked_until > t:
+                out.append(f"{host} is rate-limiting us (backing off)")
+        if self.pump_dexes is not None and not (self.pump_dexes[0] or self.pump_dexes[1]):
+            out.append("pump.fun dex ids not found on GeckoTerminal: final-stretch/migrated rely on DexScreener dex ids only")
+        if not DISCORD_WEBHOOK:
+            out.append("#signals feed off (DISCORD_WEBHOOK_URL not set)")
+        if not RADAR_WEBHOOK:
+            out.append("#radar feed off (DISCORD_RADAR_WEBHOOK_URL not set)")
+        return out
 
-    # ---------- paper trades, tracking and learning ----------
-    def manage_signals(self, now):
+    def maybe_heartbeat(self, now):
+        m = self.cfg.heartbeat_minutes
+        if m <= 0 or not HEARTBEAT_WEBHOOK:
+            return
+        due = (now - self.started >= 90) if not self.last_heartbeat_t else (now - self.last_heartbeat_t >= m * 60)
+        if due:
+            self.last_heartbeat_t = now
+            notify(build_heartbeat_embed(self, now), hook=HEARTBEAT_WEBHOOK)
+
+    # ---------- outcome tracking and learning (nothing is bought or sold) ----------
+    def track_alerts(self, now):
         cfg = self.cfg
         for mint, sig in list(self.signals.items()):
             c = self.cands.get(mint)
@@ -1946,30 +2124,16 @@ class Bot:
                     died = True
                 if chg <= -0.8:
                     died = True
-            if c and c.no_pair_since and now - c.no_pair_since >= cfg.no_price_exit_min * 60:
-                died, rugged, price = True, True, 0.0
+            if c and c.no_pair_since and now - c.no_pair_since >= cfg.dead_no_price_min * 60:
+                died, rugged = True, True
             if c and (c.rc or {}).get("rugged"):
                 died = rugged = True
-            # ---- paper TP / SL / timeout (unchanged risk management)
-            if sig.paper and price is not None:
-                change = price / sig.entry_price - 1
-                reason = ("no_price" if (price == 0.0 and rugged) else "take_profit" if change >= cfg.take_profit
-                          else "stop_loss" if change <= -cfg.stop_loss else "timeout" if age_min >= cfg.max_hold_min else None)
-                if reason:
-                    pnl = sig.size_usd * change
-                    self.realized_pnl_today += pnl
-                    sig.paper = False
-                    self.log_csv("EXIT", sig.symbol, mint, price, pnl, reason)
-                    self.jlog({"type": "outcome", "t": now_iso(), "mint": mint, "symbol": sig.symbol, "category": sig.category,
-                               "pnl": round(pnl, 2), "reason": reason, "win": pnl > 0, "score": round(sig.score, 1)})
-                    notify(build_exit_embed(sig, price, pnl, reason), content=f"`{mint}`" if CA_TEXT else "")
-            # ---- learning outcome at the play's own horizon (1h for scalps/momentum, 4h for narrative/gems)
-            if not sig.learn_done and (str(sig.horizon or 60) in sig.checkpoints or died):
+            # learning outcome at the play's own horizon (1h for scalps/momentum, 4h for narrative/gems)
+            if str(sig.horizon or 60) in sig.checkpoints or died:
                 self.finalize_learning(sig, died, rugged, now)
-            if not sig.paper and sig.learn_done:
                 del self.signals[mint]
                 if c:
-                    self.cands.pop(mint, None)
+                    c.signaled = False      # keep radar-monitoring the token; it simply won't be alerted again (c.alerted)
 
     def finalize_learning(self, sig: Signal, died: bool, rugged: bool, now: float):
         cps, hz = sig.checkpoints, str(sig.horizon or 60)
@@ -2018,11 +2182,12 @@ class Bot:
 
     # ---------- persistence ----------
     def save_state(self):
-        st = {"day": self.day, "realized_pnl_today": self.realized_pnl_today,
-              "seen": dict(list(self.seen.items())[-3000:]), "signals": [vars(s) for s in self.signals.values()],
+        keep_after = self.clock() - self.cfg.baseline_keep_hours * 3600
+        base = {m: b for m, b in self.baselines.items() if b.get("t", 0) >= keep_after}
+        base = dict(sorted(base.items(), key=lambda kv: kv[1]["t"])[-5000:])
+        st = {"seen": dict(list(self.seen.items())[-3000:]), "signals": [vars(s) for s in self.signals.values()],
               "learner": {"outcomes": self.learner.outcomes}, "sent_times": list(self.sent_times),
-              "limit_notified_day": self.limit_notified_day, "grad_obs": self.grad_obs,
-              "last_alert_t": self.last_alert_t, "last_idle_t": self.last_idle_t}
+              "grad_obs": self.grad_obs, "last_alert_t": self.last_alert_t, "baselines": base}
         tmp = self.cfg.state_file + ".tmp"
         with open(tmp, "w") as fh:
             json.dump(st, fh, default=str)
@@ -2035,15 +2200,13 @@ class Bot:
         try:
             with open(self.cfg.state_file) as fh:
                 s = json.load(fh)
-            self.day = s.get("day", self.day)
-            self.realized_pnl_today = s.get("realized_pnl_today", 0.0)
             seen = s.get("seen", {})
             seen = seen if isinstance(seen, dict) else dict.fromkeys(seen, now + 1800)
             self.seen = {k: (v if isinstance(v, (int, float)) else now + 1800) for k, v in seen.items()}
             self.sent_times = deque(s.get("sent_times", []))
-            self.limit_notified_day = s.get("limit_notified_day")
             self.grad_obs = s.get("grad_obs", [])
-            self.last_alert_t, self.last_idle_t = s.get("last_alert_t", 0.0), s.get("last_idle_t", 0.0)
+            self.last_alert_t = s.get("last_alert_t", 0.0)
+            self.baselines = {m: b for m, b in (s.get("baselines") or {}).items() if isinstance(b, dict) and b.get("p")}
             self.learner.outcomes = (s.get("learner") or {}).get("outcomes", [])
             self.learner.refresh()
             for d in s.get("signals", []):
@@ -2051,23 +2214,15 @@ class Bot:
                     self.signals[d["mint"]] = Signal(**d)
                 except TypeError:
                     pass
-            for p in s.get("positions", []):  # migrate open paper positions from older versions
-                try:
-                    self.signals[p["mint"]] = Signal(mint=p["mint"], symbol=p.get("symbol", "?"), entry_price=p["entry_price"],
-                                                     t0=p.get("opened_at", now), url=p.get("url", ""), size_usd=p.get("size_usd", self.cfg.position_size_usd),
-                                                     score=0.0, subs={}, risk=0.0, entry={}, paper=True, learn_done=True)
-                except Exception:
-                    pass
-            for mint, sig in self.signals.items():  # keep tracking open signals after a restart
-                c = Candidate(mint=mint, first_seen=now, source="restored", symbol=sig.symbol, url=sig.url, signaled=True,
-                              tier="strong", alert_cat=sig.category, alert_n=1, alert_t=sig.t0, invalid_price=sig.invalid_price)
-                self.cands[mint] = c
+            for mint, sig in self.signals.items():  # keep tracking open plays after a restart
+                self.cands[mint] = Candidate(mint=mint, first_seen=now, source="restored", symbol=sig.symbol, url=sig.url,
+                                             signaled=True, alerted=True, tier="strong", alert_cat=sig.category,
+                                             alert_n=1, alert_t=sig.t0, invalid_price=sig.invalid_price)
         except Exception as e:
             print(f"[warn] could not load state, starting fresh: {e}")
 
     # ---------- main loop ----------
     def tick(self, now):
-        self.roll_day(now)
         self.discover(now)
         self.harvest(now)
         self.refresh_due(now)
@@ -2078,19 +2233,20 @@ class Bot:
         self.process_dirty(now)
         self.schedule_enrichment(now)
         self.harvest(now)
-        self.manage_signals(now)
-        self.maybe_idle_notice(now)
+        self.track_alerts(now)
+        self.maybe_heartbeat(now)
 
     def status(self, now):
         tiers, lanes = Counter(c.tier for c in self.cands.values()), self.lane_counts()
         top = sorted((c for c in self.cands.values() if c.score is not None), key=lambda c: -c.score)[:5]
-        r = self.regime
+        r, st = self.regime, self.stats
         print(f"[status] {now_iso()} monitored={len(self.cands)} {dict(tiers)} | lanes: new={lanes['NEW PAIR']} "
-              f"final-stretch={lanes['FINAL STRETCH']} migrated={lanes['MIGRATED']} | open signals={len(self.signals)} sent={self.stats['signals']} | "
+              f"final-stretch={lanes['FINAL STRETCH']} migrated={lanes['MIGRATED']} | discovered={st['discovered']} light_scans={st['light_scans']} "
+              f"plays={st['signals']} radar={st['radar_early'] + st['radar_runner'] + st['radar_trending'] + st['radar_lane']} | "
               f"heat={r['heat']:.2f}{'' if r['known'] else '(unknown)'} thr={r['threshold']:.0f} budget={r['budget']}/h | "
               f"api/min dex={LIMITERS['dex'].per_min()} feed={LIMITERS['dexfeed'].per_min()} gecko={LIMITERS['gecko'].per_min()} "
-              f"rugcheck={LIMITERS['rugcheck'].per_min()} | vetoed={self.stats['vetoed']} learned={len(self.learner.outcomes)}")
-        if not any((c.play or {}).get("category") in CATS and not c.signaled for c in self.cands.values()):
+              f"rugcheck={LIMITERS['rugcheck'].per_min()} | vetoed={st['vetoed']} learned={len(self.learner.outcomes)}")
+        if not any((c.play or {}).get("category") in CATS and not c.alerted for c in self.cands.values()):
             print("   NO QUALITY PLAYS RIGHT NOW.")
         for c in top:
             p = c.play or {}
@@ -2105,7 +2261,8 @@ class Bot:
                 os_signal.signal(sg, lambda *_: setattr(self, "stop", True))
             except ValueError:
                 pass
-        print(f"Radar started (paper mode). Ctrl+C to stop. Webhook {'set' if DISCORD_WEBHOOK else 'NOT set'}.")
+        on = lambda v: "ON" if v else "off (variable not set)"
+        print(f"{VERSION} started. Ctrl+C to stop. Feeds: #signals {on(DISCORD_WEBHOOK)} | #radar {on(RADAR_WEBHOOK)} | #heartbeat {on(HEARTBEAT_WEBHOOK)}")
         end = time.time() + max_minutes * 60 if max_minutes else None
         while not self.stop:
             now = self.clock()
@@ -2139,7 +2296,7 @@ class Bot:
 def report(cfg: Config):
     bot = Bot(cfg, clock=time.time)
     bot.load_state()
-    outs, paper = bot.learner.outcomes, []
+    outs, radar = bot.learner.outcomes, Counter()
     if os.path.exists(cfg.signals_file):
         with open(cfg.signals_file) as fh:
             for line in fh:
@@ -2147,10 +2304,11 @@ def report(cfg: Config):
                     r = json.loads(line)
                 except ValueError:
                     continue
-                if r.get("type") == "outcome":
-                    paper.append(r)
-    print(f"Paper trades closed: {len(paper)}" + (f" | win rate {sum(1 for p in paper if p['win']) / len(paper):.0%} | PnL ${sum(p['pnl'] for p in paper):.2f}" if paper else ""))
-    print(f"Alerts with a full outcome (1h for scalp/momentum, 4h for narrative/gem): {len(outs)}")
+                if r.get("type") == "radar":
+                    radar[r.get("kind")] += 1
+    print("Radar posts logged: " + (", ".join(f"{k} {v}" for k, v in sorted(radar.items())) or "none yet"))
+    print(f"Tokens with a retained baseline quote: {len(bot.baselines)}")
+    print(f"Play alerts with a full outcome (1h for scalp/momentum, 4h for narrative/gem): {len(outs)}")
     for cat in CATS:
         b = [o for o in outs if o.get("category") == cat]
         if b:
@@ -2221,26 +2379,60 @@ def make_sample(kind: str, bot: Bot, now: float) -> Candidate:
     return c
 
 
+def evaluate_sample(kind: str, bot: Bot, now: float) -> Candidate:
+    c = make_sample(kind, bot, now)
+    f = features(c, now, bot.cfg)
+    f.update(bot.lane_info(c, f, now))
+    c.f, c.narr = f, bot.narr.analyze(c, now)
+    c.subs = category_scores(f, c.narr)
+    c.risk, c.risk_notes, c.vetoes = risk_assessment(c, f, bot.cfg)
+    c.score, c.coverage = compute_score(c.subs, c.risk, bot.weights())
+    c.play = classify_play(c, now, bot.cfg, bot.cfg.signal_threshold, bot.learner)
+    return c
+
+
 def send_test():
-    """Four fake sample embeds (one per play type) so you can check the webhook and the layout on your phone."""
+    """Sample posts (FAKE tokens) to every configured channel, so you can check the webhooks and the layout on your phone."""
     cfg, now = Config(), time.time()
-    for kind in ("scalp", "momentum", "narrative", "gem"):
-        bot = Bot(cfg)
-        c = make_sample(kind, bot, now)
-        f = features(c, now, cfg)
-        f.update(bot.lane_info(c, f, now))
-        c.f, c.narr = f, bot.narr.analyze(c, now)
-        c.subs = category_scores(f, c.narr)
-        c.risk, c.risk_notes, c.vetoes = risk_assessment(c, f, cfg)
-        c.score, c.coverage = compute_score(c.subs, c.risk, bot.weights())
-        c.play = classify_play(c, now, cfg, cfg.signal_threshold, bot.learner)
-        if c.play["category"] not in CATS:
-            print(f"[test] sample '{kind}' did not qualify (category {c.play['category']}, near {c.play['near']}); skipped")
-            continue
-        notify(build_play_embed(c, cfg, cfg.signal_threshold, bot.learner, DEBUG_EMBED), content=f"`{c.mint}`" if CA_TEXT else "")
-        print(f"[test] sent sample: {c.play['category']} (Mind Score {c.play['score']:.0f})")
-        time.sleep(1.2)
-    print("Done. These are FAKE tokens; check your Discord channel.")
+    if not (DISCORD_WEBHOOK or RADAR_WEBHOOK or HEARTBEAT_WEBHOOK):
+        print("No webhook variables set (DISCORD_WEBHOOK_URL / DISCORD_RADAR_WEBHOOK_URL / DISCORD_HEARTBEAT_WEBHOOK_URL).")
+        return
+    if DISCORD_WEBHOOK:
+        for kind in ("scalp", "momentum", "narrative", "gem"):
+            bot = Bot(cfg)
+            c = evaluate_sample(kind, bot, now)
+            if c.play["category"] not in CATS:
+                print(f"[test] sample '{kind}' did not qualify (category {c.play['category']}); skipped")
+                continue
+            notify(build_play_embed(c, cfg, cfg.signal_threshold, bot.learner, DEBUG_EMBED), content=ca_block(c.mint))
+            print(f"[test] #signals: {c.play['category']} (Mind Score {c.play['score']:.0f})")
+            time.sleep(1.2)
+    bot = Bot(cfg)
+    if HEARTBEAT_WEBHOOK:
+        bot.stats.update(discovered=1234, light_scans=18_420, signals=2, vetoed=61, dropped=190, radar_early=9, radar_runner=3,
+                         radar_trending=4, radar_lane=2)
+        for kind in ("scalp", "momentum", "gem"):
+            c = evaluate_sample(kind, bot, now)
+            bot.cands[c.mint] = c
+        notify(build_heartbeat_embed(bot, now + 3 * 3600), hook=HEARTBEAT_WEBHOOK)
+        print("[test] #heartbeat: sample status post")
+    if RADAR_WEBHOOK:
+        c = evaluate_sample("scalp", bot, now)
+        base = {"p": c.snaps[-1].price / 3.4, "t": now - 5400, "sym": c.symbol}
+        for kind, note, lanes in (
+                ("EARLY RADAR", "Newly observed token that passed the basic checks (authorities revoked, no RugCheck danger flags). Current read: **no play yet, watching**. A research lead, not a recommendation.", None),
+                ("RUNNER", "Up **3.4×** from the first quote this radar recorded (90 min ago). Based on sampled prices; not proof anyone could buy and sell at them.", None),
+                ("TRENDING", "Rank #3 in GeckoTerminal's Solana trending pools. This radar first saw it 42 min ago. Trending rank measures visibility in that feed, not safety or future performance.", None),
+                ("FINAL STRETCH", "Pump.fun bonding curve is ≈88% full (estimated against a ~$69,000 migration size). Migration alone does not establish safety or predict a price increase.", ["FINAL STRETCH"]),
+                ("MIGRATED", "Migrated ~12 min ago (observed migrating). Migration alone does not establish safety or predict a price increase.", ["MIGRATED"])):
+            c.trend_rank = 3 if kind == "TRENDING" else None
+            if lanes:
+                c.f["lanes"], c.f["bond_progress"], c.f["mig_min"] = lanes, 0.88, 12
+            notify(build_radar_embed(kind, c, base if kind == "RUNNER" or kind == "EARLY RADAR" else None, now, note),
+                   content=ca_block(c.mint), hook=RADAR_WEBHOOK)
+            print(f"[test] #radar: {kind}")
+            time.sleep(1.2)
+    print("Done. These are FAKE tokens; check your Discord channels.")
 
 
 if __name__ == "__main__":
@@ -2253,9 +2445,5 @@ if __name__ == "__main__":
         i = args.index("--probe")
         probe(args[i + 1]) if len(args) > i + 1 else print("usage: --probe MINT")
     else:
-        mins = None
-        if "--max-minutes" in args:
-            mins = float(args[args.index("--max-minutes") + 1])
-        elif "--once" in args:   # compatibility with the old 5-minute cron workflow
-            mins = 4.5
+        mins = float(args[args.index("--max-minutes") + 1]) if "--max-minutes" in args else None
         Bot(Config()).run(max_minutes=mins)
