@@ -70,3 +70,4 @@ time,action,symbol,mint,price,pnl_usd,reason
 2026-10-21 03:45:15,SIGNAL,Auralized,9dAxxKvYRxLoLwq3v72JzsyE2b3xvKawmkEwTKxcpump,2.45e-05,0.0,MOMENTUM
 2026-10-21 03:47:18,SIGNAL,PILLED,FegYTsqy4DZssmqd2VzncCiHnjPQ8PfEUcdSkQaKpump,3.218e-05,0.0,MOMENTUM
 2026-10-21 03:47:27,EXIT,Auralized,9dAxxKvYRxLoLwq3v72JzsyE2b3xvKawmkEwTKxcpump,4.115e-05,16.99,take_profit
+2026-10-21 04:14:47,EXIT,PILLED,FegYTsqy4DZssmqd2VzncCiHnjPQ8PfEUcdSkQaKpump,5.25e-06,-20.92,stop_loss
