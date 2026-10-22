@@ -26,7 +26,8 @@ guarantee a coin is legit.
 TRACKING ONLY: there is no stop-loss, no take-profit and no exits. Every coin the bot posts (plays and radar posts)
 is tracked for 24h from the price at the moment it was posted (peak multiple, current multiple, died or not).
 
-Every coin post puts the CA in a Discord code block in the message text, above the embed, so it is easy to copy.
+Every coin post is followed by a separate message containing only the CA as inline code (`CA`), so on Discord
+mobile you can tap it to copy. Set CA_POSITION=top to put it above the alert instead.
 
 How tokens are judged
   * Every monitored token is classified from ALL available data (price action, volume, liquidity, buyers and
@@ -81,8 +82,9 @@ DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")                  # #signals (
 RADAR_WEBHOOK = os.getenv("DISCORD_RADAR_WEBHOOK_URL")              # #radar
 HEARTBEAT_WEBHOOK = os.getenv("DISCORD_HEARTBEAT_WEBHOOK_URL")      # #heartbeat
 TRACKER_WEBHOOK = os.getenv("DISCORD_TRACKER_WEBHOOK_URL")          # #tracker (optional)
-VERSION = "RADAR-3.2"
+VERSION = "RADAR-3.3"
 DEBUG_EMBED = os.getenv("DEBUG_EMBED") == "1" or "--debug" in sys.argv
+CA_POSITION = (os.getenv("CA_POSITION") or "bottom").lower()   # CA message below the alert (or "top")
 CA_IN_EMBED = os.getenv("CA_IN_EMBED") == "1"   # ALSO add the CA as a field at the bottom of play embeds
 
 SOL_MINT = "So11111111111111111111111111111111111111112"
@@ -331,24 +333,25 @@ def parse_iso_ms(s):
 # =====================================================================================
 # Discord
 # =====================================================================================
-def ca_block(mint: str) -> str:
-    """CA as a Discord code block in the plain message text (above the embed): easiest thing to copy on a phone."""
-    return f"```\n{mint}\n```"
+class CA(str):
+    """Marks a contract address that is posted as its OWN message, formatted as inline code (`CA`) in normal message
+    text (not inside an embed), so on Discord mobile you can tap it to copy it."""
 
 
-def notify(embed: dict, content: str = "", hook=None) -> bool:
-    """Post one embed (plus optional plain message text) via a webhook. Never breaks the bot."""
-    url = hook or DISCORD_WEBHOOK
-    if not url:
-        return False
-    payload = {"embeds": [embed]}
-    if content:
-        payload["content"] = content
+def ca_block(mint: str) -> "CA":
+    return CA(mint)
+
+
+def _post(url: str, payload: dict) -> bool:
     try:
-        for _ in range(2):  # one retry if rate limited
+        for _ in range(3):  # retry if rate limited
             r = requests.post(url, json=payload, timeout=10)
             if r.status_code == 429:
-                time.sleep(float(r.json().get("retry_after", 1)))
+                try:
+                    wait = float(r.json().get("retry_after", 1))
+                except Exception:
+                    wait = 1.0
+                time.sleep(min(wait, 10))
                 continue
             if r.status_code >= 400:
                 print(f"[warn] discord returned {r.status_code}: {r.text[:200]}")
@@ -357,6 +360,28 @@ def notify(embed: dict, content: str = "", hook=None) -> bool:
     except Exception as e:
         print(f"[warn] discord notify failed: {e}")
     return False
+
+
+def notify(embed: dict, content: str = "", hook=None) -> bool:
+    """Post one embed via a webhook. A CA is sent as a separate plain-text message right below the embed
+    (or above it with CA_POSITION=top). Never breaks the bot."""
+    url = hook or DISCORD_WEBHOOK
+    if not url:
+        return False
+    if isinstance(content, CA):
+        ca_msg = {"content": f"`{content}`", "allowed_mentions": {"parse": []}}   # inline code: tap to copy on Discord mobile
+        if CA_POSITION == "top":
+            if not _post(url, ca_msg):
+                return False
+            return _post(url, {"embeds": [embed]})
+        ok = _post(url, {"embeds": [embed]})
+        if ok:
+            _post(url, ca_msg)
+        return ok
+    payload = {"embeds": [embed]}
+    if content:
+        payload["content"] = content
+    return _post(url, payload)
 
 
 # =====================================================================================
