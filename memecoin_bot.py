@@ -8,7 +8,23 @@ webhook you create; if its variable is not set, that feed is simply off:
                                               plus a short UPDATE if a play turns AVOID or changes category
   DISCORD_RADAR_WEBHOOK_URL      #radar      coin feed: EARLY RADAR, RUNNERS, TRENDING, FINAL STRETCH, MIGRATED
   DISCORD_HEARTBEAT_WEBHOOK_URL  #heartbeat  status post (first after ~90s, then every 30 min): coins discovered
-                                              and scanned, lanes, states, blockers. It is not a coin alert.
+                                              and scanned, lanes, states, calls being tracked, blockers. Not a coin alert.
+  DISCORD_TRACKER_WEBHOOK_URL    #tracker    (optional) CALL TRACKER: milestone pings when a called coin hits 2x/3x/5x/
+                                              10x/20x/50x/100x from the price it was called at, a note if a play dies, and
+                                              an hourly board of every call from the last 24h. If not set, milestones go
+                                              to the channel the coin was called in and the board goes to #signals.
+
+SAFETY GATE: nothing is posted (no play, no radar post) unless the coin passes EVERY anti-rug check below, and any
+check the bot cannot confirm counts as a FAIL: mint+freeze authority revoked; fresh RugCheck report with no danger
+flags and no serious warnings; LP >= 90% locked/burned (migrated/DEX coins); top-10 holders <= 30%, largest holder
+<= 10%, insiders <= 10%, at most 1 connected-wallet cluster, deployer <= 5%; >= 150 holders; liquidity >= $20K and
+>= 3% of market cap; >= 20 min old and watched >= 5 min with no liquidity drop over 15%; sells are >= 15% of trades;
+no wash-trading signs; and a confirmed Jupiter sell route (honeypot check). If a coin the bot called later rugs, its
+deployer is blacklisted and that deployer's future coins are rejected. This removes most obvious rugs; no filter can
+guarantee a coin is legit.
+
+TRACKING ONLY: there is no stop-loss, no take-profit and no exits. Every coin the bot posts (plays and radar posts)
+is tracked for 24h from the price at the moment it was posted (peak multiple, current multiple, died or not).
 
 Every coin post puts the CA in a Discord code block in the message text, above the embed, so it is easy to copy.
 
@@ -26,7 +42,7 @@ How tokens are judged
     and uses it, transparently and with safeguards, to nudge scoring weights. Nothing is bought or sold.
 
 Setup:   pip install requests
-Env:     the three webhooks above, plus (optional) SOLANA_RPC_URL, DEBUG_EMBED=1, CA_IN_EMBED=1,
+Env:     the webhooks above, plus (optional) SOLANA_RPC_URL, DEBUG_EMBED=1, CA_IN_EMBED=1,
          JUPITER_QUOTE_URL / JUPITER_API_KEY (sell-route check)
 Run:     python memecoin_bot.py                  runs forever
          python memecoin_bot.py --max-minutes N  run N minutes, save state, exit
@@ -64,7 +80,8 @@ JUPITER_KEY = os.getenv("JUPITER_API_KEY")
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")                  # #signals (keep secret)
 RADAR_WEBHOOK = os.getenv("DISCORD_RADAR_WEBHOOK_URL")              # #radar
 HEARTBEAT_WEBHOOK = os.getenv("DISCORD_HEARTBEAT_WEBHOOK_URL")      # #heartbeat
-VERSION = "RADAR-3.0"
+TRACKER_WEBHOOK = os.getenv("DISCORD_TRACKER_WEBHOOK_URL")          # #tracker (optional)
+VERSION = "RADAR-3.2"
 DEBUG_EMBED = os.getenv("DEBUG_EMBED") == "1" or "--debug" in sys.argv
 CA_IN_EMBED = os.getenv("CA_IN_EMBED") == "1"   # ALSO add the CA as a field at the bottom of play embeds
 
@@ -132,9 +149,33 @@ class Config:
     baseline_keep_hours: float = 72
     # ---- heartbeat (#heartbeat)
     heartbeat_minutes: float = 30
+    # ---- call tracker (tracking only: no stop-loss, no exits)
+    track_hours: float = 24                 # follow every posted coin for this long
+    track_milestones: tuple = (2, 3, 5, 10, 20, 50, 100)
+    track_radar_calls: bool = True          # also track #radar posts, not only #signals plays
+    tracker_board_minutes: float = 60       # hourly "CALL TRACKER" board (0 = off)
+    calls_keep_days: float = 7
     # ---- hard vetoes (safety overrides score)
-    veto_top10_pct: float = 65
-    veto_insider_pct: float = 40
+    veto_top10_pct: float = 50
+    veto_insider_pct: float = 25
+    # ---- SAFETY GATE: every post (plays AND radar) must pass ALL of these; unknown data = FAIL
+    safe_min_age_min: float = 20
+    safe_min_observe_s: float = 300
+    safe_min_liquidity_usd: float = 20_000
+    safe_min_liq_mcap: float = 0.03
+    safe_max_top10_pct: float = 30
+    safe_max_top1_pct: float = 10
+    safe_max_insider_pct: float = 10
+    safe_max_insider_networks: int = 1
+    safe_min_lp_locked_pct: float = 90      # migrated / DEX pools only (bonding-curve coins have no LP to pull)
+    safe_max_deployer_pct: float = 5
+    safe_min_holders: int = 150
+    safe_min_sell_share: float = 0.15       # sells must be >= 15% of 1h trades (honeypot check)
+    safe_min_trades_h1: int = 30
+    safe_max_buys_per_buyer: float = 5      # wash-trading check
+    safe_max_turnover: float = 40           # 1h volume / liquidity (wash-trading check)
+    safe_max_liq_drop: float = 0.15         # liquidity may not fall more than 15% while watched
+    safe_require_sell_route: bool = True    # Jupiter must be able to route a sell (honeypot check)
     veto_liq_drop_10m: float = 0.50
     veto_liq_mcap: float = 0.008
     # ---- outcome tracking / learning (no trading)
@@ -401,6 +442,8 @@ class Candidate:
     invalid_price: Optional[float] = None
     invalidated: bool = False
     alerted: bool = False
+    tracked: bool = False                   # a posted coin that the call tracker is following
+    safety_fails: list = field(default_factory=lambda: ["not checked yet"])
     # radar feed state
     trend_rank: Optional[int] = None
     trend_posted: bool = False
@@ -433,6 +476,38 @@ class Signal:
     learn_done: bool = False
     size_usd: float = 0.0     # legacy field from older versions
     paper: bool = False       # legacy field from older versions
+
+
+@dataclass
+class Call:
+    """A coin the bot posted, followed for track_hours from the price at the moment it was posted (tracking only)."""
+    mint: str
+    symbol: str
+    url: str
+    t0: float
+    price0: float
+    mcap0: Optional[float] = None
+    liq0: Optional[float] = None
+    labels: list = field(default_factory=list)      # e.g. ["EARLY RADAR", "EARLY GEM"]
+    channel: str = "radar"                          # "signals" or "radar" (where it was called)
+    peak: float = 0.0
+    peak_t: float = 0.0
+    peak_mcap: Optional[float] = None
+    last_price: float = 0.0
+    last_t: float = 0.0
+    last_mcap: Optional[float] = None
+    last_liq: Optional[float] = None
+    hits: int = 0                                   # milestones already announced
+    status: str = "live"                            # live | dead | done
+    end_reason: str = ""
+    end_t: float = 0.0
+    deployer: str = ""
+
+    def mult(self) -> float:
+        return self.last_price / self.price0 if self.price0 else 0.0
+
+    def peak_mult(self) -> float:
+        return self.peak / self.price0 if self.price0 else 0.0
 
 
 # =====================================================================================
@@ -593,7 +668,7 @@ def parse_rugcheck(rep) -> dict:
     """Defensive parse of a RugCheck report. Anything missing stays None ('unavailable')."""
     rc = {"ok": False, "holders": None, "top10_pct": None, "top1_pct": None, "insider_pct": None,
           "insider_networks": None, "insider_wallets": None, "lp_locked_pct": None, "rugged": None,
-          "danger_risks": None, "risk_names": [], "deployer": None, "deployer_pct": None}
+          "danger_risks": None, "risk_names": [], "warn_names": [], "deployer": None, "deployer_pct": None}
     if not isinstance(rep, dict):
         return rc
     rc["ok"] = True
@@ -601,10 +676,13 @@ def parse_rugcheck(rep) -> dict:
     rc["holders"] = int(th) if th is not None else None
     known = rep.get("knownAccounts") or {}
 
-    def is_pool(h):
+    def is_pool(h):   # pools / bonding curves are not "holders" for concentration purposes
         for k in (h.get("address"), h.get("owner")):
             ka = known.get(k) if k else None
-            if isinstance(ka, dict) and str(ka.get("type", "")).upper() in ("AMM", "LP", "POOL"):
+            if not isinstance(ka, dict):
+                continue
+            typ, name = str(ka.get("type", "")).upper(), str(ka.get("name", "")).lower()
+            if typ in ("AMM", "LP", "POOL", "BONDING", "CURVE") or any(w in name for w in ("bonding curve", "amm", "pool", "liquidity")):
                 return True
         return False
 
@@ -626,6 +704,7 @@ def parse_rugcheck(rep) -> dict:
         rc["rugged"] = bool(rep.get("rugged"))
     danger = [r.get("name") for r in (rep.get("risks") or []) if isinstance(r, dict) and str(r.get("level", "")).lower() == "danger"]
     rc["danger_risks"], rc["risk_names"] = len(danger), danger
+    rc["warn_names"] = [str(r.get("name")) for r in (rep.get("risks") or []) if isinstance(r, dict) and str(r.get("level", "")).lower() == "warn"]
     creator = rep.get("creator")
     if isinstance(creator, str) and creator:
         rc["deployer"] = creator
@@ -852,6 +931,78 @@ def risk_assessment(c: Candidate, f: dict, cfg: Config):
     if f["buys_per_buyer"] is not None and f["buys_per_buyer"] > 6:
         add(10, "same wallets buying repeatedly")
     return min(100.0, pts), notes, vetoes
+
+
+BLOCK_WARN_RE = re.compile(r"lp unlocked|unlocked lp|single holder|high ownership|top 10|low liquidity|copycat|creator|"
+                           r"freeze|mint|bundl|insider|honeypot|transfer fee|blacklist", re.I)
+
+
+def safety_gate(c: Candidate, now: float, cfg: Config, bad_deployers=()) -> list:
+    """Every check must PASS with real data; unknown counts as a fail. Returns the list of failures (empty = safe)."""
+    f, rc, s, fails = c.f, (c.rc or {}), c.snaps[-1], []
+    if c.authority is not True:
+        fails.append("mint/freeze authority not confirmed revoked")
+    if not rc.get("ok") or now - c.rc_ok_t > 600:
+        fails.append("no fresh RugCheck report")
+    else:
+        if rc.get("rugged"):
+            fails.append("RugCheck: rugged")
+        if rc.get("danger_risks"):
+            fails.append("RugCheck danger: " + str((rc.get("risk_names") or ["flag"])[0]))
+        warn = [w for w in (rc.get("warn_names") or []) if BLOCK_WARN_RE.search(w)]
+        if warn:
+            fails.append("RugCheck warning: " + warn[0])
+        h = f.get("holders")
+        if h is None or h < cfg.safe_min_holders:
+            fails.append("holders unknown" if h is None else f"only {h} holders")
+        t10, t1 = f.get("top10"), f.get("top1")
+        if t10 is None:
+            fails.append("top-10 holder data unavailable")
+        elif t10 > cfg.safe_max_top10_pct:
+            fails.append(f"top 10 hold {t10:.0f}%")
+        if t1 is not None and t1 > cfg.safe_max_top1_pct:
+            fails.append(f"largest holder {t1:.0f}%")
+        ins, nets = f.get("insider"), f.get("nets")
+        if ins is None and nets is None:
+            fails.append("insider data unavailable")
+        if ins is not None and ins > cfg.safe_max_insider_pct:
+            fails.append(f"insiders {ins:.0f}%")
+        if nets is not None and nets > cfg.safe_max_insider_networks:
+            fails.append(f"{nets} connected-wallet clusters")
+        dep, dpct = rc.get("deployer"), rc.get("deployer_pct")
+        if dep and dep in bad_deployers:
+            fails.append("deployer's earlier coin rugged")
+        if dpct is not None and dpct > cfg.safe_max_deployer_pct:
+            fails.append(f"deployer holds {dpct:.0f}%")
+    if f.get("dex_stage") != "bonding":      # migrated / DEX pools: LP and depth matter
+        lp = f.get("lp_locked")
+        if lp is None:
+            fails.append("LP lock unknown")
+        elif lp < cfg.safe_min_lp_locked_pct:
+            fails.append(f"LP only {lp:.0f}% locked/burned")
+        if (s.liq or 0) < cfg.safe_min_liquidity_usd:
+            fails.append(f"liquidity {usd(s.liq)} < {usd(cfg.safe_min_liquidity_usd)}")
+        if f.get("liq_mcap") is None or f["liq_mcap"] < cfg.safe_min_liq_mcap:
+            fails.append("thin liquidity vs market cap")
+    if f.get("age_min", 0) < cfg.safe_min_age_min:
+        fails.append(f"only {f.get('age_min', 0):.0f} min old")
+    if f.get("span_s", 0) < cfg.safe_min_observe_s:
+        fails.append("still being watched")
+    drops = [x for x in (f.get("liq_chg_first"), f.get("liq_chg_10m")) if x is not None]
+    if any(x <= -cfg.safe_max_liq_drop for x in drops):
+        fails.append("liquidity dropped while watched")
+    tot = (f.get("buys_h1") or 0) + (f.get("sells_h1") or 0)
+    if tot < cfg.safe_min_trades_h1:
+        fails.append("too few trades to judge")
+    elif (f.get("sells_h1") or 0) / tot < cfg.safe_min_sell_share:
+        fails.append("almost nobody is selling (honeypot sign)")
+    if f.get("buys_per_buyer") is not None and f["buys_per_buyer"] > cfg.safe_max_buys_per_buyer:
+        fails.append("same wallets buying repeatedly")
+    if f.get("turnover") is not None and f["turnover"] > cfg.safe_max_turnover:
+        fails.append("wash-trading-like volume")
+    if cfg.safe_require_sell_route and c.sell_ok is not True:
+        fails.append("sell route not confirmed (honeypot check)")
+    return fails
 
 
 def risk_factor(risk: float) -> float:
@@ -1412,6 +1563,7 @@ def build_play_embed(c: Candidate, cfg: Config, thr: float, learner, debug: bool
         {"name": "Holders", "value": holders, "inline": True},
         {"name": "Top 10 / largest", "value": top, "inline": True},
         {"name": "Insiders", "value": ins, "inline": True},
+        {"name": "Safety gate: PASSED", "value": safety_line(c), "inline": False},
         {"name": "Narrative / meta", "value": narrative_text(c, track), "inline": False},
         {"name": "Why it could move", "value": p["why"][:1000], "inline": False},
         {"name": "On-chain", "value": on_chain_text(c), "inline": False},
@@ -1459,6 +1611,22 @@ def build_update_embed(c: Candidate, cfg: Config, kind: str, text: str, entry_pr
             "footer": {"text": "Classification changed with new data • Not financial advice"}, "timestamp": now_iso()}
 
 
+def safety_line(c: Candidate) -> str:
+    """Shown only on coins that PASSED the safety gate."""
+    f, rc = c.f, c.rc or {}
+    lp = "bonding curve (no LP yet)" if f.get("dex_stage") == "bonding" else (
+        f"LP {f['lp_locked']:.0f}% locked/burned" if f.get("lp_locked") is not None else "LP n/a")
+    bits = ["✅ Authorities revoked", "RugCheck clean", lp]
+    if f.get("top10") is not None:
+        bits.append(f"Top 10 {f['top10']:.0f}%" + (f" / largest {f['top1']:.0f}%" if f.get("top1") is not None else ""))
+    if f.get("insider") is not None:
+        bits.append(f"Insiders {f['insider']:.0f}%")
+    if c.sell_ok is True:
+        bits.append("Sell route ✓")
+    bits.append(f"{f.get('age_min', 0):.0f} min old")
+    return ("🛡️ " + " • ".join(bits))[:1000]
+
+
 def risk_line(c: Candidate) -> str:
     rc, f = c.rc or {}, c.f
     bits = ["Authorities ✅" if c.authority is True else "Authorities ❔"]
@@ -1491,7 +1659,7 @@ def build_radar_embed(kind: str, c: Candidate, base: Optional[dict], now: float,
         {"name": "1h volume", "value": usd(s.vol_h1), "inline": True},
         {"name": "Buys / sells (1h)", "value": buys, "inline": True},
         {"name": "Holders", "value": holders, "inline": True},
-        {"name": "Risk checks", "value": risk_line(c), "inline": False},
+        {"name": "Safety gate: PASSED", "value": safety_line(c), "inline": False},
     ]
     if base and base.get("p"):
         mult = s.price / base["p"]
@@ -1509,6 +1677,68 @@ def build_radar_embed(kind: str, c: Candidate, base: Optional[dict], now: float,
     if c.icon:
         embed["thumbnail"] = {"url": c.icon}
     return embed
+
+
+def build_milestone_embed(call: Call, m: int, now: float) -> dict:
+    mult = call.mult()
+    emoji = "🚀" if m >= 10 else ("🔥" if m >= 5 else "📈")
+    label = " → ".join(call.labels[:3]) or "call"
+    fields = [
+        {"name": "Called at", "value": f"{price_str(call.price0)}\nMC {usd(call.mcap0)}", "inline": True},
+        {"name": "Now", "value": f"{price_str(call.last_price)}\nMC {usd(call.last_mcap)}", "inline": True},
+        {"name": "Peak so far", "value": f"**{call.peak_mult():.1f}×**\nMC {usd(call.peak_mcap)}", "inline": True},
+        {"name": "Liquidity", "value": usd(call.last_liq), "inline": True},
+        {"name": "Called", "value": f"<t:{int(call.t0)}:R>", "inline": True},
+        {"name": "Called as", "value": label[:200], "inline": True},
+    ]
+    if call.url:
+        fields.append({"name": "Links", "value": f"[Chart]({call.url}) • [RugCheck](https://rugcheck.xyz/tokens/{call.mint})", "inline": False})
+    return {"title": f"{emoji} {m}× — {call.symbol}", "description": f"Up **{mult:.1f}×** since the bot called it ({ago(now - call.t0)} ago).",
+            "color": 0x2ECC71 if m < 10 else 0xF1C40F, "fields": fields,
+            "footer": {"text": "Call tracker • tracking only, no exits • sampled prices, not guaranteed fills • Not financial advice"},
+            "timestamp": now_iso()}
+
+
+def build_dead_embed(call: Call, now: float) -> dict:
+    return {"title": f"💀 {call.symbol} — tracking stopped", "color": 0x7F8C8D,
+            "description": (f"{call.end_reason[0].upper() + call.end_reason[1:]}. Peak was **{call.peak_mult():.1f}×** "
+                            f"({ago(call.peak_t - call.t0)} after the call); last seen at {call.mult():.2f}×.")[:900],
+            "footer": {"text": "Call tracker • Not financial advice"}, "timestamp": now_iso()}
+
+
+def call_stats(calls: list) -> dict:
+    peaks = [c.peak_mult() for c in calls]
+    return {"n": len(calls), "x2": sum(1 for p in peaks if p >= 2), "x5": sum(1 for p in peaks if p >= 5),
+            "x10": sum(1 for p in peaks if p >= 10), "dead": sum(1 for c in calls if c.status == "dead"),
+            "med": statistics.median(peaks) if peaks else None,
+            "best": max(calls, key=lambda c: c.peak_mult()) if calls else None}
+
+
+def build_board_embed(bot: "Bot", now: float) -> Optional[dict]:
+    day = [c for c in bot.calls.values() if c.t0 >= now - 86400]
+    if not day:
+        return None
+    st = call_stats(day)
+    plays = [c for c in day if c.channel == "signals"]
+    ps = call_stats(plays)
+    icon = {"live": "🟢", "dead": "💀", "done": "⚪"}
+    top = sorted(day, key=lambda c: -c.peak_mult())[:8]
+    lines = [f"{icon.get(c.status, '•')} **{c.symbol}** peak {c.peak_mult():.1f}× • now {c.mult():.2f}× • "
+             f"{(c.labels or ['call'])[-1]} • <t:{int(c.t0)}:R>" for c in top]
+    live = sorted((c for c in day if c.status == "live"), key=lambda c: -c.mult())[:5]
+    live_lines = [f"**{c.symbol}** {c.mult():.2f}× (peak {c.peak_mult():.1f}×)" for c in live]
+    summary = (f"{st['n']} calls | {st['x2']} hit 2×+ | {st['x5']} hit 5×+ | {st['x10']} hit 10×+ | {st['dead']} died"
+               + (f" | median peak {st['med']:.2f}×" if st["med"] is not None else ""))
+    if plays:
+        summary += f"\nPlays (#signals): {ps['n']} | {ps['x2']} hit 2×+ | {ps['dead']} died"
+    fields = [{"name": "Last 24h", "value": summary, "inline": False},
+              {"name": "Best calls (by peak)", "value": "\n".join(lines)[:1024], "inline": False}]
+    if live_lines:
+        fields.append({"name": "Live now", "value": " | ".join(live_lines)[:1024], "inline": False})
+    return {"title": "📊 CALL TRACKER", "description": "How every coin the bot posted in the last 24h has done since it was posted.",
+            "color": 0x3498DB, "fields": fields,
+            "footer": {"text": "Tracking only (no exits) • peaks use sampled prices, not guaranteed fills • Not financial advice"},
+            "timestamp": now_iso()}
 
 
 def build_heartbeat_embed(bot: "Bot", now: float) -> dict:
@@ -1537,6 +1767,8 @@ def build_heartbeat_embed(bot: "Bot", now: float) -> dict:
         {"name": "Plays", "inline": False,
          "value": ("NO QUALITY PLAYS RIGHT NOW." if not qualifying else f"{qualifying} qualifying right now")
                   + ("\nClosest: " + " | ".join(near) if (near and not qualifying) else "")},
+        {"name": "Safety gate", "inline": False, "value": bot.safety_summary()},
+        {"name": "Tracking", "inline": False, "value": bot.tracking_line(now)},
         {"name": "Current meta (hottest groups)", "inline": False, "value": board[:500]},
         {"name": "Blockers", "inline": False, "value": ("\n".join(blockers) if blockers else "No current blocker")[:900]},
     ]
@@ -1574,6 +1806,10 @@ class Bot:
         self.started = clock()
         self.last_alert_t = 0.0
         self.last_heartbeat_t = 0.0
+        self.calls: dict = {}             # mint -> Call (tracking only)
+        self.radar_done: dict = {}        # mint -> {"kinds": [...], "runner": n, "t": time}; survives restarts
+        self.last_board_t = 0.0
+        self.bad_deployers: set = set()   # deployers whose coin rugged after the bot called it
         self.stop = False
         self.stats = Counter()
 
@@ -1688,6 +1924,7 @@ class Bot:
             if len(self.cands) >= self.cfg.max_candidates and not self.evict_weakest(now):
                 return
             c = Candidate(mint=mint, first_seen=now, source=source)
+            self.remember(c)
             self.cands[mint] = c
             self.stats["discovered"] += 1
             self.stats[f"found_{source}"] += 1
@@ -1708,7 +1945,7 @@ class Bot:
         self.narr.note_name(c, now)
 
     def evict_weakest(self, now) -> bool:
-        weak = [c for c in self.cands.values() if c.tier == "weak" and not c.signaled]
+        weak = [c for c in self.cands.values() if c.tier == "weak" and not c.signaled and not c.tracked]
         if not weak:
             return False
         w = min(weak, key=lambda c: (c.cheap or 0, -c.first_seen))
@@ -1802,13 +2039,15 @@ class Bot:
             if not c.signaled:
                 if (s.liq or 0) < cfg.gate_liquidity_usd or (s.vol_h1 or 0) < cfg.gate_volume_h1_usd:
                     continue
-                if c.f.get("age_min", 0) < cfg.min_pair_age_min or len(c.snaps) < 2 or (c.cheap or 0) < 35:
+                interesting = bool(c.trend_rank) or bool({"FINAL STRETCH", "MIGRATED"} & set(c.f.get("lanes") or [])) or \
+                    ((self.baselines.get(c.mint) or {}).get("p") and s.price >= 1.8 * self.baselines[c.mint]["p"])
+                if c.f.get("age_min", 0) < cfg.min_pair_age_min or len(c.snaps) < 2 or ((c.cheap or 0) < 35 and not interesting):
                     continue
             ttl = cfg.rugcheck_ttl_strong if (c.tier == "strong" or c.signaled) else cfg.rugcheck_ttl_watch
             need_rc = now - c.rc_t >= ttl
             need_auth = c.authority is not True and now - c.authority_t >= cfg.authority_recheck_s
             need_sell = (cfg.use_sell_check and c.sell_ok is not True and c.sell_fail < 3 and bool(c.rc.get("ok"))
-                         and (c.cheap or 0) >= 50 and now - c.sell_t >= 120)
+                         and c.authority is True and now - c.sell_t >= 120)
             if need_rc or need_auth or need_sell:
                 want.append((c, need_auth, need_rc, need_sell))
         want.sort(key=lambda x: -((x[0].cheap or 0) + (100 if x[0].signaled else 0)))
@@ -1885,8 +2124,10 @@ class Bot:
         return ""
 
     def classify(self, c: Candidate, now: float) -> str:
-        if c.signaled:
-            return "strong" if now - (self.signals[c.mint].t0 if c.mint in self.signals else now) < 3600 else "watch"
+        if c.signaled or c.tracked:
+            call = self.calls.get(c.mint)
+            t0 = call.t0 if call else (self.signals[c.mint].t0 if c.mint in self.signals else now)
+            return "strong" if now - t0 < 3600 else "watch"
         if len(c.snaps) < self.cfg.min_observations or now - c.first_seen < 90:
             return "new"
         near = (c.play or {}).get("near")
@@ -1901,15 +2142,19 @@ class Bot:
         c.narr = self.narr.analyze(c, now)
         c.subs = category_scores(f, c.narr)
         c.risk, c.risk_notes, c.vetoes = risk_assessment(c, f, self.cfg)
+        dep = (c.rc or {}).get("deployer")
+        if dep and dep in self.bad_deployers:
+            c.vetoes.append("deployer's earlier coin rugged (seen by this bot)")
         w = self.weights()
         c.score, c.coverage = compute_score(c.subs, c.risk, w)
         c.cheap = wavg([(c.subs.get(k), w[k]) for k in CHEAP_KEYS])
+        c.safety_fails = safety_gate(c, now, self.cfg, self.bad_deployers)
         reason = self.dead_reason(c, f, now)
         if not reason and c.vetoes:
             reason = "veto: " + c.vetoes[0]
         if reason:
             c.dead_reason = reason
-            if not c.signaled:
+            if not (c.signaled or c.tracked):
                 self.drop(c, now, reason)
                 return False
         c.play = classify_play(c, now, self.cfg, self.regime["threshold"], self.learner)
@@ -1948,10 +2193,8 @@ class Bot:
             b.append("still observing")
         if f["age_min"] < cfg.min_pair_age_min:
             b.append("too new")
-        if c.authority is not True:
-            b.append("authorities unverified")
-        if not c.rc.get("ok") or now - c.rc_ok_t > 600:
-            b.append("RugCheck pending")
+        if c.safety_fails:
+            b.append("safety: " + c.safety_fails[0])
         if c.risk > cfg.max_risk:
             b.append(f"risk {c.risk:.0f}")
         if c.coverage < cfg.min_data_coverage:
@@ -1989,6 +2232,7 @@ class Bot:
                    "thesis": p["thesis"], "why": p["why"], "risk_text": p["risk"], "invalidation": p["invalidation"],
                    "threshold": self.regime["threshold"], "heat": self.regime["heat"]})
         notify(build_play_embed(c, cfg, self.regime["threshold"], self.learner, DEBUG_EMBED), content=ca_block(c.mint))
+        self.start_call(c, now, p["category"], "signals")
 
     def maybe_update(self, c: Candidate, now: float):
         """An alerted token is still being judged: tell the user if the classification materially changes."""
@@ -2029,11 +2273,19 @@ class Bot:
             self.stats[f"radar_{section}"] += 1
             self.jlog({"type": "radar", "t": now_iso(), "kind": kind, "mint": c.mint, "symbol": c.symbol, "price": c.snaps[-1].price})
             print(f"[RADAR {kind}] {c.symbol}")
+            rd = self.radar_done.setdefault(c.mint, {"kinds": [], "runner": 0, "t": now})
+            if kind not in rd["kinds"]:
+                rd["kinds"].append(kind)
+            rd["t"] = now
+            if self.cfg.track_radar_calls:
+                self.start_call(c, now, kind, "radar")
         return ok
 
     def radar_check(self, c: Candidate, now: float):
         """Coin feed in the style of Early Radar / Runners / Trending watch / Pump.fun migration sections."""
         if not RADAR_WEBHOOK or not c.snaps or c.dead_reason or c.vetoes or c.risk > self.cfg.max_risk:
+            return
+        if c.safety_fails:            # SAFETY GATE: every radar section, not just Early Radar
             return
         cfg, f, s = self.cfg, c.f, c.snaps[-1]
         liq_ok = (s.liq or 0) >= cfg.gate_liquidity_usd
@@ -2047,14 +2299,15 @@ class Bot:
                                              f"Rank #{c.trend_rank} in GeckoTerminal's Solana trending pools. {first} "
                                              "Trending rank measures visibility in that feed, not safety or future performance.")
         # RUNNERS: multiple of the first quote the radar recorded
-        if base and base.get("p") and liq_ok and now - base["t"] >= 120:
+        if base and base.get("p") and liq_ok and now - base["t"] >= 120 and not c.tracked:   # tracked coins get milestones instead
             mult = s.price / base["p"]
             reached = sum(1 for m in cfg.runner_multiples if mult >= m)
             if reached > c.runner_done:
-                if self.radar_post("RUNNER", "runner", c, now,
-                                   f"Up **{mult:.1f}×** from the first quote this radar recorded ({ago(now - base['t'])} ago). "
-                                   "Based on sampled prices; not proof anyone could buy and sell at them."):
-                    c.runner_done = reached
+                c.runner_done = reached     # set first, so a capped/failed post is not retried on every refresh
+                self.radar_done.setdefault(c.mint, {"kinds": [], "runner": 0, "t": now})["runner"] = reached
+                self.radar_post("RUNNER", "runner", c, now,
+                                f"Up **{mult:.1f}×** from the first quote this radar recorded ({ago(now - base['t'])} ago). "
+                                "Based on sampled prices; not proof anyone could buy and sell at them.")
         # FINAL STRETCH / MIGRATED
         lanes = f.get("lanes") or []
         if "FINAL STRETCH" in lanes and not c.final_posted and (s.vol_h1 or 0) >= 2_000:
@@ -2070,7 +2323,7 @@ class Bot:
                 and (s.vol_h1 or 0) >= cfg.gate_volume_h1_usd):
             read = (c.play or {}).get("category")
             c.early_posted = self.radar_post("EARLY RADAR", "early", c, now,
-                                             f"Newly observed token that passed the basic checks (authorities revoked, no RugCheck danger flags). "
+                                             f"Newly observed token that passed every safety-gate check. "
                                              f"Current read: **{read if read in CATS else 'no play yet, watching'}**. A research lead, not a recommendation.")
 
     # ---------- heartbeat (#heartbeat) ----------
@@ -2180,6 +2433,125 @@ class Bot:
                        "threshold": clamp(cfg.signal_threshold + (0.5 - heat) * 12 + self.learner.perf_adj, 62, 88),
                        "budget": int(round(2 + 8 * heat))}
 
+    # ---------- call tracker (tracking only: no stop-loss, no exits) ----------
+    def remember(self, c: Candidate):
+        """Re-apply what was already posted about this coin, so restarts never repeat a post."""
+        rd = self.radar_done.get(c.mint) or {}
+        kinds = set(rd.get("kinds") or [])
+        c.early_posted = c.early_posted or "EARLY RADAR" in kinds
+        c.trend_posted = c.trend_posted or "TRENDING" in kinds
+        c.final_posted = c.final_posted or "FINAL STRETCH" in kinds
+        c.migr_posted = c.migr_posted or "MIGRATED" in kinds
+        c.runner_done = max(c.runner_done, rd.get("runner") or 0)
+        call = self.calls.get(c.mint)
+        if call:
+            c.tracked = call.status == "live"
+            if call.channel == "signals":
+                c.alerted = True
+
+    def start_call(self, c: Candidate, now: float, label: str, channel: str):
+        s = c.snaps[-1]
+        call = self.calls.get(c.mint)
+        if call and call.status == "live":
+            if label not in call.labels:
+                call.labels.append(label)
+            if channel == "signals":
+                call.channel = "signals"   # a radar coin that became a play: milestones now go to #signals (price stays the first call)
+            return
+        self.calls[c.mint] = Call(mint=c.mint, symbol=c.symbol, url=c.url, t0=now, price0=s.price, mcap0=s.mcap, liq0=s.liq,
+                                  labels=[label], channel=channel, peak=s.price, peak_t=now, peak_mcap=s.mcap,
+                                  last_price=s.price, last_t=s.t, last_mcap=s.mcap, last_liq=s.liq,
+                                  deployer=(c.rc or {}).get("deployer") or "")
+        c.tracked = True
+        self.stats["calls"] += 1
+
+    def call_hook(self, call: Call):
+        return TRACKER_WEBHOOK or (DISCORD_WEBHOOK if call.channel == "signals" else RADAR_WEBHOOK)
+
+    def end_call(self, call: Call, c: Optional[Candidate], now: float, status: str, reason: str):
+        call.status, call.end_reason, call.end_t = status, reason, now
+        if c:
+            c.tracked = False
+        rugged = status == "dead" and any(w in reason for w in ("no trading pair", "rugged", "liquidity was pulled"))
+        dep = call.deployer or ((c.rc or {}).get("deployer") if c else "")
+        if rugged and dep:
+            self.bad_deployers.add(dep)
+            print(f"[blacklist] deployer {short_addr(dep)} (coin {call.symbol} rugged)")
+        self.jlog({"type": "call_end", "t": now_iso(), "mint": call.mint, "symbol": call.symbol, "status": status,
+                   "reason": reason, "peak_mult": round(call.peak_mult(), 3), "last_mult": round(call.mult(), 3)})
+        print(f"[TRACK end] {call.symbol}: {status} ({reason}) peak {call.peak_mult():.2f}x")
+        if status == "dead" and (call.channel == "signals" or TRACKER_WEBHOOK):
+            notify(build_dead_embed(call, now), content=ca_block(call.mint), hook=self.call_hook(call))
+
+    def track_calls(self, now):
+        cfg = self.cfg
+        for mint, call in list(self.calls.items()):
+            if call.status != "live":
+                continue
+            c = self.cands.get(mint)
+            if c is None:                       # keep following it even if it fell out of the candidate pool
+                c = Candidate(mint=mint, first_seen=now, source="tracked", symbol=call.symbol, url=call.url, tracked=True)
+                self.remember(c)
+                self.cands[mint] = c
+                continue
+            c.tracked = True
+            s = c.snaps[-1] if c.snaps else None
+            if s and s.t > call.last_t:
+                call.last_price, call.last_t, call.last_mcap, call.last_liq = s.price, s.t, s.mcap, s.liq
+                if s.price > call.peak:
+                    call.peak, call.peak_t, call.peak_mcap = s.price, s.t, s.mcap
+                reached = sum(1 for m in cfg.track_milestones if call.mult() >= m)
+                if reached > call.hits:
+                    m = cfg.track_milestones[reached - 1]
+                    call.hits = reached
+                    self.stats["milestones"] += 1
+                    self.log_csv("MILESTONE", call.symbol, mint, s.price, f"{m}x")
+                    self.jlog({"type": "milestone", "t": now_iso(), "mint": mint, "symbol": call.symbol, "x": m,
+                               "mult": round(call.mult(), 3), "minutes_after_call": round((now - call.t0) / 60, 1)})
+                    hook = self.call_hook(call)
+                    if hook:
+                        notify(build_milestone_embed(call, m, now), content=ca_block(mint), hook=hook)
+            died = ""
+            if c.no_pair_since and now - c.no_pair_since >= cfg.dead_no_price_min * 60:
+                died = "no trading pair any more (possible rug)"
+            elif (c.rc or {}).get("rugged"):
+                died = "RugCheck marks it as rugged"
+            elif s and call.liq0 and s.liq is not None and s.liq < 0.25 * call.liq0 and s.liq < 2 * cfg.dead_liquidity_usd:
+                died = "liquidity was pulled"
+            elif s and call.price0 and s.price <= 0.1 * call.price0:
+                died = "down 90%+ from the call"
+            if died:
+                self.end_call(call, c, now, "dead", died)
+            elif now - call.t0 >= cfg.track_hours * 3600:
+                self.end_call(call, c, now, "done", f"{cfg.track_hours:.0f}h tracking window ended")
+
+    def maybe_board(self, now):
+        m = self.cfg.tracker_board_minutes
+        hook = TRACKER_WEBHOOK or DISCORD_WEBHOOK
+        if m <= 0 or not hook or now - self.last_board_t < m * 60:
+            return
+        emb = build_board_embed(self, now)
+        if emb is None:
+            return
+        self.last_board_t = now
+        notify(emb, hook=hook)
+
+    def safety_summary(self) -> str:
+        pool = [c for c in self.cands.values() if c.snaps and not c.dead_reason and (c.cheap or 0) >= 40]
+        passing = [c for c in pool if not c.safety_fails]
+        reasons = Counter(c.safety_fails[0].split(" (")[0] for c in pool if c.safety_fails)
+        top = ", ".join(f"{r} ({n})" for r, n in reasons.most_common(3))
+        return (f"{len(passing)} of {len(pool)} promising coins pass right now | blacklisted deployers: {len(self.bad_deployers)}"
+                + (f"\nTop blocks: {top}" if top else ""))[:1000]
+
+    def tracking_line(self, now) -> str:
+        live = sum(1 for c in self.calls.values() if c.status == "live")
+        day = [c for c in self.calls.values() if c.t0 >= now - 86400]
+        st = call_stats(day)
+        best = st["best"]
+        return (f"{live} calls live | 24h: {st['n']} calls, {st['x2']} hit 2×+, {st['dead']} died"
+                + (f" | best {best.symbol} {best.peak_mult():.1f}×" if best and best.peak_mult() >= 1.2 else ""))
+
     # ---------- persistence ----------
     def save_state(self):
         keep_after = self.clock() - self.cfg.baseline_keep_hours * 3600
@@ -2187,7 +2559,12 @@ class Bot:
         base = dict(sorted(base.items(), key=lambda kv: kv[1]["t"])[-5000:])
         st = {"seen": dict(list(self.seen.items())[-3000:]), "signals": [vars(s) for s in self.signals.values()],
               "learner": {"outcomes": self.learner.outcomes}, "sent_times": list(self.sent_times),
-              "grad_obs": self.grad_obs, "last_alert_t": self.last_alert_t, "baselines": base}
+              "grad_obs": self.grad_obs, "last_alert_t": self.last_alert_t, "baselines": base,
+              "last_heartbeat_t": self.last_heartbeat_t, "last_board_t": self.last_board_t,
+              "calls": [vars(c) for c in sorted(self.calls.values(), key=lambda c: c.t0)
+                        if c.t0 >= self.clock() - self.cfg.calls_keep_days * 86400][-2000:],
+              "radar_done": {m: d for m, d in self.radar_done.items() if d.get("t", 0) >= keep_after},
+              "bad_deployers": sorted(self.bad_deployers)[-5000:]}
         tmp = self.cfg.state_file + ".tmp"
         with open(tmp, "w") as fh:
             json.dump(st, fh, default=str)
@@ -2206,6 +2583,15 @@ class Bot:
             self.sent_times = deque(s.get("sent_times", []))
             self.grad_obs = s.get("grad_obs", [])
             self.last_alert_t = s.get("last_alert_t", 0.0)
+            self.last_heartbeat_t = s.get("last_heartbeat_t", 0.0)
+            self.last_board_t = s.get("last_board_t", 0.0)
+            self.bad_deployers = set(s.get("bad_deployers") or [])
+            self.radar_done = {m: d for m, d in (s.get("radar_done") or {}).items() if isinstance(d, dict)}
+            for d in s.get("calls", []):
+                try:
+                    self.calls[d["mint"]] = Call(**d)
+                except TypeError:
+                    pass
             self.baselines = {m: b for m, b in (s.get("baselines") or {}).items() if isinstance(b, dict) and b.get("p")}
             self.learner.outcomes = (s.get("learner") or {}).get("outcomes", [])
             self.learner.refresh()
@@ -2218,6 +2604,12 @@ class Bot:
                 self.cands[mint] = Candidate(mint=mint, first_seen=now, source="restored", symbol=sig.symbol, url=sig.url,
                                              signaled=True, alerted=True, tier="strong", alert_cat=sig.category,
                                              alert_n=1, alert_t=sig.t0, invalid_price=sig.invalid_price)
+            for mint, call in self.calls.items():   # keep following live calls after a restart
+                c = self.cands.get(mint) or Candidate(mint=mint, first_seen=now, source="restored", symbol=call.symbol, url=call.url)
+                self.remember(c)
+                self.cands[mint] = c
+            for c in self.cands.values():
+                self.remember(c)
         except Exception as e:
             print(f"[warn] could not load state, starting fresh: {e}")
 
@@ -2234,6 +2626,8 @@ class Bot:
         self.schedule_enrichment(now)
         self.harvest(now)
         self.track_alerts(now)
+        self.track_calls(now)
+        self.maybe_board(now)
         self.maybe_heartbeat(now)
 
     def status(self, now):
@@ -2262,7 +2656,8 @@ class Bot:
             except ValueError:
                 pass
         on = lambda v: "ON" if v else "off (variable not set)"
-        print(f"{VERSION} started. Ctrl+C to stop. Feeds: #signals {on(DISCORD_WEBHOOK)} | #radar {on(RADAR_WEBHOOK)} | #heartbeat {on(HEARTBEAT_WEBHOOK)}")
+        print(f"{VERSION} started. Ctrl+C to stop. Feeds: #signals {on(DISCORD_WEBHOOK)} | #radar {on(RADAR_WEBHOOK)} | "
+              f"#heartbeat {on(HEARTBEAT_WEBHOOK)} | #tracker {on(TRACKER_WEBHOOK)}")
         end = time.time() + max_minutes * 60 if max_minutes else None
         while not self.stop:
             now = self.clock()
@@ -2307,6 +2702,15 @@ def report(cfg: Config):
                 if r.get("type") == "radar":
                     radar[r.get("kind")] += 1
     print("Radar posts logged: " + (", ".join(f"{k} {v}" for k, v in sorted(radar.items())) or "none yet"))
+    calls = list(bot.calls.values())
+    if calls:
+        st = call_stats(calls)
+        print(f"Call tracker (last {cfg.calls_keep_days:.0f} days): {st['n']} calls | {st['x2']} hit 2x+ | {st['x5']} hit 5x+ | "
+              f"{st['x10']} hit 10x+ | {st['dead']} died | median peak {st['med']:.2f}x")
+        for c in sorted(calls, key=lambda c: -c.peak_mult())[:10]:
+            print(f"  {c.symbol:<10} peak {c.peak_mult():6.2f}x  last {c.mult():5.2f}x  {c.status:<5} {' > '.join(c.labels)}")
+    else:
+        print("Call tracker: no calls yet")
     print(f"Tokens with a retained baseline quote: {len(bot.baselines)}")
     print(f"Play alerts with a full outcome (1h for scalp/momentum, 4h for narrative/gem): {len(outs)}")
     for cat in CATS:
@@ -2394,7 +2798,7 @@ def evaluate_sample(kind: str, bot: Bot, now: float) -> Candidate:
 def send_test():
     """Sample posts (FAKE tokens) to every configured channel, so you can check the webhooks and the layout on your phone."""
     cfg, now = Config(), time.time()
-    if not (DISCORD_WEBHOOK or RADAR_WEBHOOK or HEARTBEAT_WEBHOOK):
+    if not (DISCORD_WEBHOOK or RADAR_WEBHOOK or HEARTBEAT_WEBHOOK or TRACKER_WEBHOOK):
         print("No webhook variables set (DISCORD_WEBHOOK_URL / DISCORD_RADAR_WEBHOOK_URL / DISCORD_HEARTBEAT_WEBHOOK_URL).")
         return
     if DISCORD_WEBHOOK:
@@ -2432,6 +2836,23 @@ def send_test():
                    content=ca_block(c.mint), hook=RADAR_WEBHOOK)
             print(f"[test] #radar: {kind}")
             time.sleep(1.2)
+    hook = TRACKER_WEBHOOK or DISCORD_WEBHOOK
+    if hook:
+        demo = Bot(cfg)
+        rows = (("ZAP", 0.0009, 3.4, 1.9, "EARLY RADAR", "radar", "live"), ("RUN", 0.0021, 2.2, 1.4, "MOMENTUM", "signals", "live"),
+                ("SEED", 0.00031, 5.6, 4.8, "EARLY GEM", "signals", "live"), ("DOGGO", 0.00012, 1.3, 0.05, "NARRATIVE META", "signals", "dead"))
+        for i, (sym, p0, peak, last, label, ch, status) in enumerate(rows):
+            demo.calls[f"Demo{sym}"] = Call(mint=f"Demo{sym}1111111111111111111111111111111", symbol=sym, url="https://dexscreener.com/solana",
+                                            t0=now - (i + 2) * 3000, price0=p0, mcap0=p0 * 1e9, liq0=40_000, labels=[label], channel=ch,
+                                            peak=p0 * peak, peak_t=now - 1800, peak_mcap=p0 * peak * 1e9, last_price=p0 * last, last_t=now,
+                                            last_mcap=p0 * last * 1e9, last_liq=52_000, hits=1, status=status,
+                                            end_reason="liquidity was pulled" if status == "dead" else "")
+        seed = demo.calls["DemoSEED"]
+        notify(build_milestone_embed(seed, 5, now), content=ca_block(seed.mint), hook=hook)
+        print("[test] tracker: sample 5x milestone")
+        time.sleep(1.2)
+        notify(build_board_embed(demo, now), hook=hook)
+        print("[test] tracker: sample CALL TRACKER board")
     print("Done. These are FAKE tokens; check your Discord channels.")
 
 
