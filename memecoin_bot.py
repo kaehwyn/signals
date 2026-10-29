@@ -7,10 +7,13 @@ Channels (each is a Discord webhook; a feed is off if its variable is not set):
   DISCORD_RADAR_WEBHOOK_URL      #radar      Axiom-Pulse-style columns: NEW PAIR / FINAL STRETCH / MIGRATED
   DISCORD_HEARTBEAT_WEBHOOK_URL  #heartbeat  status every 30 min (coins scanned, safety blocks, calls tracked)
   DISCORD_TRACKER_WEBHOOK_URL    #tracker    (optional) 2x/3x/5x/10x... pings, death notes, hourly call board
-Optional: BUBBLEMAPS_API_KEY (adds Bubblemaps cluster/bundle checks), SOLANA_RPC_URL, CA_POSITION=top
+Optional: BUBBLEMAPS_API_KEY (adds Bubblemaps cluster/bundle checks), SOLANA_RPC_URL, CA_POSITION=top,
+          PUMPPORTAL_API_KEY (not needed for the free launch/migration streams)
 
-Where coins come from: GeckoTerminal new + trending pools, pump.fun bonding-curve pools (final stretch),
-PumpSwap pools (migrated), DexScreener profiles/boosts. Every monitored coin is re-checked at least once a minute.
+Where coins come from: a LIVE pump.fun feed (PumpPortal websocket: every new launch and every migration the moment
+it happens), plus GeckoTerminal new/trending pools, pump.fun bonding-curve pools (final stretch), PumpSwap pools
+(migrated) and DexScreener profiles/boosts. New launches are checked at 3, 8, 15 and 30 min old; the ones that get
+real liquidity and volume join the watch list (up to 1,500 coins, each re-checked at least once a minute).
 
 Nothing is posted unless it passes the SAFETY GATE (unknown = fail): mint/freeze revoked, clean RugCheck,
 LP >= 90% locked/burned (DEX pools), top 10 <= 30%, largest holder <= 10%, insiders <= 10%, <= 1 wallet cluster,
@@ -19,15 +22,16 @@ drop, real sellers, no wash trading, a confirmed Jupiter sell route, deployer no
 Bubblemaps clusters/bundles under the limits. A deployer whose called coin rugs is blacklisted.
 No filter can guarantee a coin is legit.
 
-Run:   pip install requests
+Run:   pip install requests websocket-client
        python memecoin_bot.py                  runs forever
-       python memecoin_bot.py --max-minutes N  run N minutes then save and exit (GitHub Actions)
+       python memecoin_bot.py --max-minutes N  run N minutes then save and exit (GitHub Actions runs ~5h40m at a time)
        python memecoin_bot.py --test           send sample posts (fake coins) to each configured channel
        python memecoin_bot.py --probe MINT     show what the bot reads for one token
 """
 import csv
 import json
 import os
+import queue
 import re
 import signal as os_signal
 import statistics
@@ -43,7 +47,7 @@ from typing import Optional
 
 import requests
 
-VERSION = "RADAR-4.0"
+VERSION = "RADAR-4.2"
 RPC_URL = os.getenv("SOLANA_RPC_URL") or "https://api.mainnet-beta.solana.com"
 DEXSCREENER = "https://api.dexscreener.com"
 GECKO = "https://api.geckoterminal.com/api/v2"
@@ -58,6 +62,8 @@ RADAR_WEBHOOK = os.getenv("DISCORD_RADAR_WEBHOOK_URL")
 HEARTBEAT_WEBHOOK = os.getenv("DISCORD_HEARTBEAT_WEBHOOK_URL")
 TRACKER_WEBHOOK = os.getenv("DISCORD_TRACKER_WEBHOOK_URL")
 CA_POSITION = (os.getenv("CA_POSITION") or "bottom").lower()
+PUMPPORTAL_URL = os.getenv("PUMPPORTAL_URL") or "wss://pumpportal.fun/api/data"
+PUMPPORTAL_KEY = os.getenv("PUMPPORTAL_API_KEY")
 
 SOL_MINT = "So11111111111111111111111111111111111111112"
 STABLES = {SOL_MINT, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"}
@@ -76,7 +82,11 @@ class Config:
     min_pair_age_min: float = 8
     max_pair_age_min: float = 48 * 60
     dead_liquidity_usd: float = 3_000
-    max_candidates: int = 400
+    max_candidates: int = 1500
+    # live launch feed (PumpPortal): every new pump.fun coin + migration
+    launch_feed: bool = True
+    launch_checks_s: tuple = (180, 480, 900, 1800)   # check a new launch at 3, 8, 15, 30 min old; drop if still dead
+    max_pending_launches: int = 5000
     # refresh cadence (seconds) - every coin at least once a minute
     interval_strong: float = 10
     interval_new: float = 15
@@ -1198,7 +1208,10 @@ def build_board_embed(calls: list, now: float) -> Optional[dict]:
 def build_heartbeat_embed(bot: "Bot", now: float) -> dict:
     st, lanes = bot.stats, bot.lane_counts()
     meta = ", ".join(t for _, t in bot.narr.board(3)) or "none confirmed"
-    desc = (f"**Scanned** {st['discovered']:,} coins · {st['light_scans']:,} refreshes · watching {len(bot.cands)}\n"
+    feed = bot.feed.status() if bot.feed else "off"
+    desc = (f"**Live feed** {feed} · {st['launches']:,} launches · {st['migrations']:,} migrations · "
+            f"{st['launches_promoted']:,} got liquidity · {len(bot.pending):,} new launches waiting\n"
+            f"**Scanned** {st['discovered']:,} coins · {st['light_scans']:,} refreshes · watching {len(bot.cands)}\n"
             f"**Lanes** New {lanes['NEW PAIR']} · Final stretch {lanes['FINAL STRETCH']} · Migrated {lanes['MIGRATED']}\n"
             f"**Posted** {st['picks']} picks · {st['radar']} radar · rejected {st['vetoed']} unsafe\n"
             f"**Safety** {bot.safety_summary()}\n"
@@ -1209,6 +1222,100 @@ def build_heartbeat_embed(bot: "Bot", now: float) -> dict:
         desc += "\n**Blockers** " + "; ".join(blockers)
     return {"title": "💓 Radar heartbeat", "description": desc[:4000], "color": 0xE91E63, "timestamp": now_iso(),
             "footer": {"text": f"{VERSION} · up {ago(now - bot.started)} · not a coin alert"}}
+
+
+# ======================================================================= live launch feed
+def classify_feed_event(msg) -> Optional[tuple]:
+    """('launch' | 'migration', mint, msg) from a PumpPortal message; None for anything else (e.g. subscribe acks)."""
+    if not isinstance(msg, dict):
+        return None
+    mint = msg.get("mint") or msg.get("baseMint")
+    if not isinstance(mint, str) or len(mint) < 32 or mint in STABLES:
+        return None
+    tx = str(msg.get("txType") or "").lower()
+    if "migrat" in tx or tx in ("complete", "create_pool"):
+        return ("migration", mint, msg)
+    if tx == "create" or msg.get("name") or msg.get("symbol"):
+        return ("launch", mint, msg)
+    return None
+
+
+class LaunchFeed:
+    """ONE websocket to PumpPortal's free new-token + migration streams (their rule: one connection at a time).
+    Runs in a background thread, reconnects with backoff (10s doubling to 5 min) so it never hammers the server."""
+
+    def __init__(self, url: str = PUMPPORTAL_URL):
+        self.url = url + (f"?api-key={PUMPPORTAL_KEY}" if PUMPPORTAL_KEY else "")
+        self.q = queue.Queue(maxsize=50_000)
+        self.stop, self.connected, self.err = False, False, ""
+        self.thread = None
+
+    def start(self) -> bool:
+        try:
+            import websocket  # noqa: F401  (package: websocket-client)
+        except ImportError:
+            self.err = "websocket-client not installed (pip install websocket-client)"
+            print(f"[feed] {self.err}")
+            return False
+        self.thread = threading.Thread(target=self._run, name="launch-feed", daemon=True)
+        self.thread.start()
+        return True
+
+    def _run(self):
+        import websocket
+        backoff = 10
+        while not self.stop:
+            ws = None
+            try:
+                ws = websocket.create_connection(self.url, timeout=30)
+                ws.send(json.dumps({"method": "subscribeNewToken"}))
+                ws.send(json.dumps({"method": "subscribeMigration"}))
+                self.connected, self.err, backoff = True, "", 10
+                print("[feed] connected to the live launch feed")
+                while not self.stop:
+                    try:
+                        raw = ws.recv()
+                    except websocket.WebSocketTimeoutException:
+                        ws.ping()
+                        continue
+                    if not raw:
+                        break
+                    try:
+                        ev = classify_feed_event(json.loads(raw))
+                    except ValueError:
+                        continue
+                    if ev:
+                        try:
+                            self.q.put_nowait(ev)
+                        except queue.Full:
+                            pass
+            except Exception as e:
+                self.err = str(e)[:150]
+                print(f"[feed] disconnected: {self.err}")
+            finally:
+                self.connected = False
+                try:
+                    if ws:
+                        ws.close()
+                except Exception:
+                    pass
+            if not self.stop:
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 300)
+
+    def drain(self, limit: int = 3000) -> list:
+        out = []
+        while len(out) < limit:
+            try:
+                out.append(self.q.get_nowait())
+            except queue.Empty:
+                break
+        return out
+
+    def status(self) -> str:
+        if self.thread is None:
+            return "off" + (f" ({self.err})" if self.err else "")
+        return "connected" if self.connected else ("reconnecting" + (f" ({self.err})" if self.err else ""))
 
 
 # ======================================================================= scanner
@@ -1231,6 +1338,9 @@ class Bot:
         self.pump_dexes, self.pump_dexes_t, self.dex_future, self._lane_i = None, 0.0, None, 0
         self.started = clock()
         self.last_heartbeat_t = self.last_board_t = 0.0
+        self.feed = LaunchFeed() if cfg.launch_feed else None
+        self.pending: dict = {}           # new launches waiting for their 3/8/15/30-min check
+        self.status_lines = deque(maxlen=60)
         self.stop = False
         self.stats = Counter()
 
@@ -1358,6 +1468,61 @@ class Bot:
         if sn is not None and (not c.snaps or sn.t - c.snaps[-1].t >= 5):
             self.add_snap(c, sn, now)
         self.narr.note_name(c, now)
+
+    # ---------- live launch feed
+    def drain_feed(self, now):
+        if not self.feed:
+            return
+        cfg = self.cfg
+        for kind, mint, msg in self.feed.drain():
+            if kind == "launch":
+                self.stats["launches"] += 1
+                if mint in self.cands or mint in self.pending or (self.seen.get(mint) or 0) > now:
+                    continue
+                if len(self.pending) >= cfg.max_pending_launches:
+                    self.pending.pop(next(iter(self.pending)))          # drop the oldest
+                self.pending[mint] = {"t": now, "n": 0, "next": now + cfg.launch_checks_s[0],
+                                      "symbol": str(msg.get("symbol") or "?")[:20], "name": str(msg.get("name") or "")[:60]}
+            else:  # migration: always worth a look right away
+                self.stats["migrations"] += 1
+                self.pending.pop(mint, None)
+                c = self.cands.get(mint)
+                if c is None and (self.seen.get(mint) or 0) <= now:
+                    if len(self.cands) < cfg.max_candidates or self.evict_weakest():
+                        c = Candidate(mint=mint, first_seen=now, source="migration")
+                        self.remember(c)
+                        self.cands[mint] = c
+                        self.stats["discovered"] += 1
+                if c is not None:
+                    c.migrated_t = c.migrated_t or now
+                    c.hot_until, c.next_check, c.dirty = now + 300, 0.0, True
+
+    def check_pending(self, now):
+        """New launches: promote the ones that got real liquidity + volume; forget the ones still dead at 30 min."""
+        cfg = self.cfg
+        due = [m for m, p in self.pending.items() if p["next"] <= now][:60]
+        for i in range(0, len(due), 30):
+            batch = due[i:i + 30]
+            pairs = fetch_dex_pairs(batch)
+            if pairs is None:
+                return
+            for mint in batch:
+                p, pair = self.pending.get(mint), pairs.get(mint)
+                if p is None:
+                    continue
+                snap = snap_from_dex(pair, now) if pair else None
+                if snap and (snap.liq or 0) >= cfg.gate_liquidity_usd and (snap.vol_h1 or 0) >= cfg.gate_volume_h1_usd:
+                    del self.pending[mint]
+                    self.stats["launches_promoted"] += 1
+                    bt = pair.get("baseToken") or {}
+                    self.ingest({"mint": mint, "symbol": bt.get("symbol") or p["symbol"], "name": bt.get("name") or p["name"],
+                                 "pair": pair.get("pairAddress"), "created_ms": pair.get("pairCreatedAt"), "snap": snap}, now)
+                    continue
+                p["n"] += 1
+                if p["n"] >= len(cfg.launch_checks_s):
+                    del self.pending[mint]                               # never got going
+                else:
+                    p["next"] = p["t"] + cfg.launch_checks_s[p["n"]]
 
     def evict_weakest(self) -> bool:
         weak = [c for c in self.cands.values() if c.tier == "weak" and not c.tracked]
@@ -1678,6 +1843,8 @@ class Bot:
 
     def blockers(self):
         out = [f"{h} rate-limiting (backing off)" for h, lim in LIMITERS.items() if lim.blocked_until > time.time()]
+        if self.feed and self.feed.thread is not None and not self.feed.connected:
+            out.append("live launch feed reconnecting")
         if not DISCORD_WEBHOOK:
             out.append("#signals off")
         if not RADAR_WEBHOOK:
@@ -1721,7 +1888,8 @@ class Bot:
               "last_heartbeat_t": self.last_heartbeat_t, "last_board_t": self.last_board_t,
               "calls": [vars(c) for c in sorted(self.calls.values(), key=lambda c: c.t0) if c.t0 >= now - self.cfg.calls_keep_days * 86400][-2000:],
               "posted": {m: d for m, d in self.posted.items() if d.get("t", 0) >= now - 3 * 86400},
-              "bad_deployers": sorted(self.bad_deployers)[-5000:]}
+              "bad_deployers": sorted(self.bad_deployers)[-5000:],
+              "pending": dict(list(self.pending.items())[-3000:])}
         tmp = self.cfg.state_file + ".tmp"
         with open(tmp, "w") as fh:
             json.dump(st, fh, default=str)
@@ -1739,6 +1907,7 @@ class Bot:
             self.grad_obs = s.get("grad_obs", [])
             self.last_heartbeat_t, self.last_board_t = s.get("last_heartbeat_t", 0.0), s.get("last_board_t", 0.0)
             self.bad_deployers = set(s.get("bad_deployers") or [])
+            self.pending = {m: p for m, p in (s.get("pending") or {}).items() if isinstance(p, dict) and now - p.get("t", 0) < 2400}
             self.posted = s.get("posted") or {m: {"labels": d.get("kinds", []), "t": d.get("t", now)} for m, d in (s.get("radar_done") or {}).items()}
             for d in s.get("calls", []):
                 try:
@@ -1755,6 +1924,8 @@ class Bot:
 
     # ---------- loop
     def tick(self, now):
+        self.drain_feed(now)
+        self.check_pending(now)
         self.discover(now)
         self.harvest(now)
         self.refresh_due(now)
@@ -1768,12 +1939,28 @@ class Bot:
         self.track_calls(now)
         self.periodic_posts(now)
 
+    def write_status_file(self, line: str):
+        """last_status.txt (committed with state) lets you or Claude see what the bot is doing without opening logs."""
+        self.status_lines.append(line)
+        try:
+            with open("last_status.txt", "w") as fh:
+                fh.write(f"{VERSION} | updated {now_iso()} | up {ago(self.clock() - self.started)}\n")
+                fh.write(f"feeds: signals={'on' if DISCORD_WEBHOOK else 'OFF'} radar={'on' if RADAR_WEBHOOK else 'OFF'} "
+                         f"heartbeat={'on' if HEARTBEAT_WEBHOOK else 'OFF'} tracker={'on' if TRACKER_WEBHOOK else 'off'} "
+                         f"rpc={'custom' if os.getenv('SOLANA_RPC_URL') else 'public'} bubblemaps={'on' if BUBBLEMAPS_KEY else 'off'}\n")
+                fh.write(f"blockers: {'; '.join(self.blockers()) or 'none'}\n\n" + "\n".join(self.status_lines) + "\n")
+        except Exception as e:
+            print(f"[warn] status file: {e}")
+
     def status(self, now):
         lanes, r = self.lane_counts(), self.regime
-        print(f"[status] {now_iso()} watching={len(self.cands)} new={lanes['NEW PAIR']} final={lanes['FINAL STRETCH']} "
+        line = (f"[status] {now_iso()} feed={self.feed.status() if self.feed else 'off'} launches={self.stats['launches']} "
+              f"pending={len(self.pending)} watching={len(self.cands)} new={lanes['NEW PAIR']} final={lanes['FINAL STRETCH']} "
               f"migrated={lanes['MIGRATED']} | picks={self.stats['picks']} radar={self.stats['radar']} | {self.safety_summary()} | "
               f"thr={r['threshold']:.0f} | api/min dex={LIMITERS['dex'].per_min()} gecko={LIMITERS['gecko'].per_min()} "
               f"rugcheck={LIMITERS['rugcheck'].per_min()}")
+        print(line)
+        self.write_status_file(line)
 
     def run(self, max_minutes=None):
         self.init_files()
@@ -1784,6 +1971,8 @@ class Bot:
             except ValueError:
                 pass
         on = lambda v: "on" if v else "off"
+        if self.feed:
+            self.feed.start()
         print(f"{VERSION} started | #signals {on(DISCORD_WEBHOOK)} #radar {on(RADAR_WEBHOOK)} #heartbeat {on(HEARTBEAT_WEBHOOK)} "
               f"#tracker {on(TRACKER_WEBHOOK)} | bubblemaps {on(BUBBLEMAPS_KEY)}")
         end = time.time() + max_minutes * 60 if max_minutes else None
@@ -1805,6 +1994,8 @@ class Bot:
             if end and time.time() >= end:
                 break
             time.sleep(self.cfg.tick_seconds)
+        if self.feed:
+            self.feed.stop = True
         try:
             self.save_state()
         finally:

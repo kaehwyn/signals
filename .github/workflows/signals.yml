@@ -2,11 +2,11 @@ name: signals
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # GitHub's minimum is 5 min; runs can be delayed when GitHub is busy
+    - cron: "*/5 * * * *"   # keeps a next run queued; each run lasts ~5h40m, so runs go back to back
   workflow_dispatch:
     inputs:
       test:
-        description: "Send a fake test embed instead of scanning"
+        description: "Send fake sample posts instead of scanning"
         type: boolean
         default: false
 
@@ -15,12 +15,12 @@ permissions:
 
 concurrency:
   group: signals
-  cancel-in-progress: false
+  cancel-in-progress: false  # never cut a running scan short; the next one waits its turn
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 355     # GitHub's limit is 360 per job; the bot stops itself at 340 and saves first
     steps:
       - uses: actions/checkout@v4
 
@@ -28,7 +28,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: pip install requests
+      - run: pip install requests websocket-client
 
       - name: Run bot
         env:
@@ -38,12 +38,15 @@ jobs:
           DISCORD_TRACKER_WEBHOOK_URL: ${{ secrets.DISCORD_TRACKER_WEBHOOK_URL }}
           SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
           BUBBLEMAPS_API_KEY: ${{ secrets.BUBBLEMAPS_API_KEY }}
-        run: python memecoin_bot.py ${{ inputs.test && '--test' || '--max-minutes 4.5' }}
+        run: python memecoin_bot.py ${{ inputs.test && '--test' || '--max-minutes 340' }}
 
       - name: Save state
-        if: ${{ !inputs.test }}
+        if: ${{ !inputs.test && always() }}
         run: |
           git config user.name "signal-bot"
           git config user.email "signal-bot@users.noreply.github.com"
-          git add state.json radar_log.csv signals.jsonl
-          git diff --cached --quiet || (git commit -m "update state" && git push)
+          git add state.json radar_log.csv signals.jsonl last_status.txt
+          git diff --cached --quiet && exit 0
+          git commit -m "update state"
+          git pull --rebase -X theirs origin main || git rebase --abort
+          git push
