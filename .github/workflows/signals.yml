@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       test:
-        description: "Send fake sample posts instead of scanning"
+        description: "Send a fake sample alert + tracker posts instead of scanning"
         type: boolean
         default: false
 
@@ -33,8 +33,6 @@ jobs:
       - name: Run bot
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DISCORD_RADAR_WEBHOOK_URL: ${{ secrets.DISCORD_RADAR_WEBHOOK_URL }}
-          DISCORD_HEARTBEAT_WEBHOOK_URL: ${{ secrets.DISCORD_HEARTBEAT_WEBHOOK_URL }}
           DISCORD_TRACKER_WEBHOOK_URL: ${{ secrets.DISCORD_TRACKER_WEBHOOK_URL }}
           SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
           BUBBLEMAPS_API_KEY: ${{ secrets.BUBBLEMAPS_API_KEY }}
