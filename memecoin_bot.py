@@ -12,7 +12,10 @@ Rug checks (unknown data = fail, so nothing half-checked gets posted):
              launcher or blacklisted, buyers look organic (not one wallet buying over and over)
   BREAKOUT   all of the above where it applies + clean RugCheck (no danger flags), LP locked/burned,
              enough holders, insiders under the limit
-A dev whose alerted coin dies gets blacklisted. No filter can promise a coin won't rug or will run.
+Rug-dev blacklist: the dev of ANY coin the bot sees get rugged is blacklisted for 30 days (saved between runs),
+so their next launches are blocked:  dev dumps their bag and the price crashes on the buyers (bonding curve),
+liquidity pulled from a DEX pool, RugCheck marks it rugged, or an alerted coin dies / vanishes.
+Devs often switch wallets, so this catches some rug devs, not all. No filter can promise a coin won't rug or will run.
 
 After an alert the coin is tracked: 2x / 3x / 5x / 10x pings and a note if it dies.
 
@@ -108,6 +111,18 @@ class Config:
     br_min_lp_locked: float = 90
     max_pairs: int = 800
     pair_refresh_s: float = 30
+    # ---------------- rug-dev blacklist
+    rug_dev_sold_share: float = 0.80          # dev sold >= 80% of the most they held...
+    rug_price_drop: float = 0.50              # ...and MC fell >= 50% from its peak...
+    rug_min_pump: float = 1.30                # ...after people bought it up >= 1.3x from launch
+    rug_min_victims: int = 5                  # ...with at least this many buyers
+    rug_liq_drop: float = 0.70                # DEX pool lost >= 70% of its liquidity...
+    rug_liq_window_s: float = 900             # ...within 15 min
+    rug_min_liq: float = 5_000                # (only counts if the pool had at least this much)
+    blacklist_days: float = 30
+    blacklist_max: int = 30_000
+    call_missing_min: float = 10              # alerted coin gone from DexScreener this long = rugged
+    call_liq_drop: float = 0.75               # alerted coin lost >= 75% of its liquidity = rugged
     # ---------------- shared
     recheck_s: float = 60                     # min time between deep checks of the same coin
     rugcheck_ttl_s: float = 180
@@ -590,6 +605,9 @@ class Launch:
     flow: deque = field(default_factory=lambda: deque(maxlen=4000))   # (t, side, sol)
     hist: deque = field(default_factory=lambda: deque(maxlen=400))    # (t, mcap_sol)
     dev_sold: bool = False
+    dev_max: float = 0.0
+    mc0: float = 0.0
+    rugged: bool = False
     last_trade: float = 0.0
     last_eval: float = 0.0
     last_deep: float = 0.0
@@ -606,6 +624,8 @@ class Launch:
         bal = num(m.get("newTokenBalance"))
         if who and bal is not None:
             self.balances[who] = bal
+            if who == self.creator:
+                self.dev_max = max(self.dev_max, bal)
         if side == "buy":
             self.n_buys += 1
             if who and who != self.creator:
@@ -663,6 +683,9 @@ class Pair:
     rc: Optional[dict] = None
     rc_t: float = 0.0
     blocked: str = ""
+    creator: str = ""
+    liq_hist: deque = field(default_factory=lambda: deque(maxlen=60))   # (t, liq usd)
+    rugged: bool = False
 
 
 @dataclass
@@ -679,6 +702,11 @@ class Call:
     dead: bool = False
     closed: bool = False
     last_seen: float = 0.0
+    liq0: float = 0.0
+    last_liq: float = 0.0
+    seen_dex: bool = False
+    missing_since: float = 0.0
+    why_dead: str = ""
 
 
 def pair_snap(p: dict, t: float) -> dict:
@@ -775,6 +803,28 @@ def breakout_gates(p: Pair, now: float, cfg: Config) -> list:
 
 def pump_migrated(p: Pair) -> bool:
     return p.mint.endswith("pump") and "pumpswap" in (p.dex or "").lower()
+
+
+def launch_rug_reason(l: Launch, cfg: Config) -> Optional[str]:
+    """Bonding-curve rug: the dev dumped their bag and the price crashed on the people who bought."""
+    if l.rugged or not l.dev_sold or l.dev_max <= 0 or not l.mc0 or not l.peak_sol:
+        return None
+    dev_left = l.balances.get(l.creator, 0.0)
+    if (dev_left <= l.dev_max * (1 - cfg.rug_dev_sold_share) and l.peak_sol >= l.mc0 * cfg.rug_min_pump
+            and l.mcap_sol <= l.peak_sol * (1 - cfg.rug_price_drop) and len(l.buyers) >= cfg.rug_min_victims):
+        return f"dev dumped, MC -{(1 - l.mcap_sol / l.peak_sol) * 100:.0f}% from peak"
+    return None
+
+
+def liq_rug_reason(hist, now: float, cfg: Config) -> Optional[str]:
+    """DEX rug: the pool lost most of its liquidity in a short window."""
+    recent = [liq for t, liq in hist if t >= now - cfg.rug_liq_window_s]
+    if len(recent) < 2:
+        return None
+    top, cur = max(recent), recent[-1]
+    if top >= cfg.rug_min_liq and cur <= top * (1 - cfg.rug_liq_drop):
+        return f"liquidity drained ({usd(top)} -> {usd(cur)}) in {cfg.rug_liq_window_s / 60:.0f}m"
+    return None
 
 
 def breakout_safety(p: Pair, chain: dict, cfg: Config, blacklisted: bool) -> tuple:
@@ -881,8 +931,10 @@ def milestone_embed(c: Call, x: int, now: float) -> dict:
 
 
 def dead_embed(c: Call) -> dict:
+    why = c.why_dead or f"down to {c.last_price / c.price0:.2f}x of the alert price"
     return {"title": f"☠️ {c.symbol} died", "color": 0xED4245,
-            "description": f"Down to {c.last_price / c.price0:.2f}x of the alert price (peak {c.peak / c.price0:.1f}x). Dev blacklisted."}
+            "description": f"{why[0].upper() + why[1:]} (peak {c.peak / c.price0:.1f}x)."
+                           + (" Dev blacklisted." if c.creator else "")}
 
 
 # ======================================================================= bot
@@ -894,7 +946,8 @@ class Bot:
         self.pairs: dict = {}
         self.calls: dict = {}
         self.creator_times = defaultdict(deque)
-        self.blacklist: set = set()
+        self.blacklist: dict = {}             # dev wallet -> [time, reason]
+        self.mint_creator: dict = {}          # mint -> (dev wallet, launch time), last 24h of launches
         self.seen: dict = {}                 # mint -> skip pair discovery until
         self.pending: dict = {}              # mint -> (kind, future)
         self.pool = ThreadPoolExecutor(max_workers=4)
@@ -918,7 +971,10 @@ class Bot:
             return
         if not isinstance(st, dict) or st.get("version", "").split("-")[0] != VERSION.split("-")[0]:
             return                                          # old bot's state: start clean
-        self.blacklist = set(st.get("blacklist") or [])
+        bl = st.get("blacklist") or {}
+        self.blacklist = {k: [time.time(), "old"] for k in bl} if isinstance(bl, list) else dict(bl)
+        for creator, times in (st.get("creator_times") or {}).items():
+            self.creator_times[creator] = deque(times)
         for d in st.get("calls") or []:
             try:
                 c = Call(**d)
@@ -930,7 +986,18 @@ class Bot:
 
     def save_state(self):
         keep = self.clock() - self.cfg.calls_keep_days * 86400
-        st = {"version": VERSION, "saved": now_iso(), "blacklist": sorted(self.blacklist)[-5000:],
+        now = self.clock()
+        cut = now - self.cfg.blacklist_days * 86400
+        bl = sorted(((k, v) for k, v in self.blacklist.items() if v[0] >= cut), key=lambda kv: kv[1][0])
+        self.blacklist = dict(bl[-self.cfg.blacklist_max:])
+        repeat = {}
+        for c in list(self.creator_times):
+            n = self.creator_launches(c, now)
+            if n >= 2:
+                repeat[c] = list(self.creator_times[c])
+            elif n == 0:
+                del self.creator_times[c]
+        st = {"version": VERSION, "saved": now_iso(), "blacklist": self.blacklist, "creator_times": repeat,
               "calls": [asdict(c) for c in self.calls.values() if c.t0 >= keep],
               "last_alert": self.last_alert, "last_quiet": self.last_quiet}
         tmp = self.cfg.state_file + ".tmp"
@@ -970,6 +1037,17 @@ class Bot:
             self.alert_times.popleft()
         return len(self.alert_times)
 
+    def blacklist_dev(self, creator: str, reason: str, mint: str, symbol: str):
+        if not creator or creator in self.blacklist:
+            return
+        self.blacklist[creator] = [self.clock(), f"{symbol}: {reason}"[:80]]
+        self.counts["blacklisted"] += 1
+        self.log("BLACKLIST", symbol, mint, None, f"{creator} | {reason}")
+        print(f"[blacklist] {creator[:8]}… {symbol} {reason}")
+
+    def creator_of(self, mint: str) -> str:
+        return (self.mint_creator.get(mint) or ("", 0))[0]
+
     def submit(self, mint, kind, fn, *args):
         self.pending[mint] = (kind, self.pool.submit(fn, *args))
 
@@ -981,16 +1059,17 @@ class Bot:
                 creator = m.get("traderPublicKey") or ""
                 if creator:
                     self.creator_times[creator].append(t)
+                    self.mint_creator[mint] = (creator, t)
                 if mint in self.launches or len(self.launches) >= self.cfg.max_trade_subs:
                     continue
                 l = Launch(mint=mint, name=str(m.get("name") or "?")[:60], symbol=str(m.get("symbol") or "?")[:20],
                            creator=creator, curve=m.get("bondingCurveKey") or "", t0=t, last_trade=t)
                 mc = num(m.get("marketCapSol")) or 0.0
-                l.mcap_sol = l.peak_sol = mc
+                l.mcap_sol = l.peak_sol = l.mc0 = mc
                 l.hist.append((t, mc))
                 init = num(m.get("initialBuy")) or 0.0
                 if creator and init > 0:
-                    l.balances[creator] = init
+                    l.balances[creator] = l.dev_max = init
                     l.early[creator] = init
                 self.launches[mint] = l
                 self.counts["launches"] += 1
@@ -1009,6 +1088,16 @@ class Bot:
             self.feed.unwatch(unsubs)
 
     def prune_launches(self, now):
+        for mint, l in self.launches.items():
+            why = launch_rug_reason(l, self.cfg)
+            if why:
+                l.rugged = True
+                self.blacklist_dev(l.creator, why, mint, l.symbol)
+                c = self.calls.get(mint)
+                if c and not c.closed:
+                    self.kill_call(c, why)
+        if len(self.mint_creator) > 80_000 or self.every("mc_prune", 600, now):
+            self.mint_creator = {m: v for m, v in self.mint_creator.items() if v[1] >= now - 86400}
         drop = []
         for mint, l in self.launches.items():
             age = (now - l.t0) / 60
@@ -1072,11 +1161,26 @@ class Bot:
                 p.pair, p.dex, p.url = d.get("pairAddress") or p.pair, d.get("dexId") or p.dex, d.get("url") or p.url
                 p.created_ms = num(d.get("pairCreatedAt")) or p.created_ms
                 p.snap = pair_snap(d, now)
+                p.liq_hist.append((now, p.snap.get("liq") or 0.0))
+                why = None if p.rugged else liq_rug_reason(p.liq_hist, now, self.cfg)
+                if why:
+                    p.rugged = True
+                    self.pair_rugged(p, why, now)
+                    continue
                 price = p.snap.get("price") or 0
                 p.peak_price = max(p.peak_price, price)
                 age_h = (now * 1000 - p.created_ms) / 3.6e6 if p.created_ms else 0
                 if age_h > self.cfg.br_max_age_h or (p.snap.get("liq") or 0) < 3_000 or (p.snap.get("mcap") or 0) > self.cfg.br_max_mcap * 3:
                     self.drop_pair(p.mint, now, 6 * 3600)
+
+    def pair_rugged(self, p: Pair, why: str, now: float):
+        creator = p.creator or (p.rc or {}).get("creator") or self.creator_of(p.mint)
+        if creator:
+            self.blacklist_dev(creator, why, p.mint, p.symbol)
+            self.drop_pair(p.mint, now, 86400)
+        elif p.mint not in self.pending:                  # dev unknown: ask RugCheck who made it
+            self.submit(p.mint, "rugdev", fetch_rugcheck, p.mint)
+            p.blocked = why
 
     def drop_pair(self, mint, now, ttl):
         self.pairs.pop(mint, None)
@@ -1121,6 +1225,13 @@ class Bot:
             except Exception as e:
                 print(f"[warn] check failed for {mint}: {e}")
                 continue
+            if kind == "rugdev":
+                p = self.pairs.get(mint)
+                creator = (chain or {}).get("creator")
+                if p and creator:
+                    self.blacklist_dev(creator, p.blocked or "rugged", mint, p.symbol)
+                self.drop_pair(mint, now, 86400)
+                continue
             if kind == "early":
                 l = self.launches.get(mint)
                 if not l or not self.sol_usd:
@@ -1138,7 +1249,10 @@ class Bot:
                     continue
                 if chain.get("rc_fresh") and chain.get("rc") is not None:
                     p.rc, p.rc_t = chain["rc"], now
-                creator = (p.rc or {}).get("creator")
+                creator = (p.rc or {}).get("creator") or self.creator_of(mint)
+                p.creator = creator or p.creator
+                if (p.rc or {}).get("rugged"):
+                    self.blacklist_dev(creator, "RugCheck: rugged", mint, p.symbol)
                 ok, rows = breakout_safety(p, chain, self.cfg, bool(creator and creator in self.blacklist))
                 if ok and not breakout_gates(p, now, self.cfg):
                     self.alert_breakout(p, rows, now)
@@ -1177,14 +1291,14 @@ class Bot:
         if not self.can_alert(now):
             return
         if notify(breakout_embed(p, rows, now)):
-            self.record_call(p.mint, p.symbol, "breakout", p.snap["price"], (p.rc or {}).get("creator") or "", now)
+            self.record_call(p.mint, p.symbol, "breakout", p.snap["price"], p.creator, now, liq=p.snap.get("liq") or 0.0)
             self.jlog({"type": "alert", "kind": "breakout", "t": now_iso(), "mint": p.mint, "symbol": p.symbol,
                        "snap": p.snap, "checks": rows})
             self.pairs.pop(p.mint, None)
 
-    def record_call(self, mint, symbol, kind, price, creator, now):
+    def record_call(self, mint, symbol, kind, price, creator, now, liq=0.0):
         self.calls[mint] = Call(mint=mint, symbol=symbol, kind=kind, t0=now, price0=price, creator=creator,
-                                peak=price, last_price=price, last_seen=now)
+                                peak=price, last_price=price, last_seen=now, liq0=liq, last_liq=liq, seen_dex=liq > 0)
         self.alert_times.append(now)
         self.last_alert = now
         self.counts["alerts"] += 1
@@ -1206,8 +1320,23 @@ class Bot:
             for c in batch:
                 d = res.get(c.mint)
                 price = num(d.get("priceUsd")) if d else None
+                l = self.launches.get(c.mint)
+                if d and price:
+                    c.missing_since = 0.0
+                    liq = num((d.get("liquidity") or {}).get("usd")) or 0.0
+                    c.seen_dex = True
+                    if liq > 0 and (d.get("dexId") or "").lower() != "pumpfun":   # a real pool (curve dumps are caught by the feed)
+                        c.liq0, c.last_liq = max(c.liq0, liq), liq
+                        if c.liq0 >= self.cfg.rug_min_liq and liq <= c.liq0 * (1 - self.cfg.call_liq_drop):
+                            self.update_call(c, price, now)
+                            self.kill_call(c, f"liquidity drained ({usd(c.liq0)} -> {usd(liq)})")
+                            continue
+                elif c.seen_dex and not (l and l.last_trade > now - 300):
+                    c.missing_since = c.missing_since or now
+                    if now - c.missing_since >= self.cfg.call_missing_min * 60:
+                        self.kill_call(c, "pool vanished from DexScreener")
+                    continue
                 if not price:
-                    l = self.launches.get(c.mint)
                     price = l.mcap_sol * self.sol_usd / 1e9 if (l and self.sol_usd) else None
                 if not price:
                     continue
@@ -1224,13 +1353,18 @@ class Bot:
             notify(milestone_embed(c, x, now), hook=hook)
             self.log("MILESTONE", c.symbol, c.mint, price, f"{x}x")
         if not c.dead and price <= c.price0 * self.cfg.dead_ratio:
-            c.dead = c.closed = True
-            if c.creator:
-                self.blacklist.add(c.creator)
-            notify(dead_embed(c), hook=hook)
-            self.log("DEAD", c.symbol, c.mint, price, f"peak {c.peak / c.price0:.2f}x")
-            self.jlog({"type": "outcome", "t": now_iso(), "mint": c.mint, "symbol": c.symbol, "kind": c.kind,
-                       "peak_x": round(c.peak / c.price0, 2), "dead": True})
+            self.kill_call(c, "")
+
+    def kill_call(self, c: Call, why: str):
+        if c.dead:
+            return
+        c.dead = c.closed = True
+        c.why_dead = why
+        self.blacklist_dev(c.creator, why or "alerted coin died", c.mint, c.symbol)
+        notify(dead_embed(c), hook=TRACKER_WEBHOOK or DISCORD_WEBHOOK)
+        self.log("DEAD", c.symbol, c.mint, c.last_price, f"peak {c.peak / c.price0:.2f}x {why}".strip())
+        self.jlog({"type": "outcome", "t": now_iso(), "mint": c.mint, "symbol": c.symbol, "kind": c.kind,
+                   "peak_x": round(c.peak / c.price0, 2), "dead": True, "why": why})
 
     def stats_24h(self, now) -> str:
         recent = [c for c in self.calls.values() if c.t0 >= now - 86400]
@@ -1251,7 +1385,7 @@ class Bot:
         top = ", ".join(f"{k} ({v})" for k, v in self.blocks.most_common(4)) or "none"
         line = (f"[status] {now_iso()} feed={self.feed.status() if self.feed else 'off'} sol=${self.sol_usd or 0:.0f} "
                 f"launches={self.counts['launches']} watching={len(self.launches)} pairs={len(self.pairs)} "
-                f"checking={len(self.pending)} | {self.stats_24h(now)} | top blocks: {top} | "
+                f"checking={len(self.pending)} blacklist={len(self.blacklist)} (+{self.counts['blacklisted']} this run) | {self.stats_24h(now)} | top blocks: {top} | "
                 f"api/min dex={LIMITERS['dex'].per_min()} rpc={LIMITERS['rpc'].per_min()} rugcheck={LIMITERS['rugcheck'].per_min()}")
         print(line)
         self.status_lines.append(line)
