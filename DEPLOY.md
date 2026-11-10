@@ -13,10 +13,9 @@ Secrets (repo → Settings → Secrets and variables → Actions):
 |---|---|---|
 | `DISCORD_WEBHOOK_URL` | #signals | yes |
 | `DISCORD_WINS_WEBHOOK_URL` | #wins | no (falls back to the tracker webhook, then #signals) |
-| `DISCORD_GRAVEYARD_WEBHOOK_URL` | #graveyard | no (same fallback) |
 | `DISCORD_EARLY_WEBHOOK_URL` | #early-watch | no (falls back to #signals, still with the NOT A BUY CALL banner) |
 | `DISCORD_RECAP_WEBHOOK_URL` | #recap | no (falls back to #signals) |
-| `DISCORD_BOT_WEBHOOK_URL` | #bot | no (heartbeats/restarts only go to the log without it) |
+| `DISCORD_STATUS_WEBHOOK_URL` | #spidey-status | no (heartbeat/restart/health warnings only go to the log without it) |
 | `SOLANA_RPC_URL` | — | no, but a free Helius key makes holder/dev checks much more reliable |
 
 Make a webhook: channel → Edit Channel → Integrations → Webhooks → New Webhook → Copy URL.

@@ -44,7 +44,7 @@ jobs:
           DISCORD_GRAVEYARD_WEBHOOK_URL: ${{ secrets.DISCORD_GRAVEYARD_WEBHOOK_URL }}
           DISCORD_EARLY_WEBHOOK_URL: ${{ secrets.DISCORD_EARLY_WEBHOOK_URL }}
           DISCORD_RECAP_WEBHOOK_URL: ${{ secrets.DISCORD_RECAP_WEBHOOK_URL }}
-          DISCORD_BOT_WEBHOOK_URL: ${{ secrets.DISCORD_BOT_WEBHOOK_URL }}
+          DISCORD_STATUS_WEBHOOK_URL: ${{ secrets.DISCORD_STATUS_WEBHOOK_URL }}
           SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
           SPIDEY_GIT_SYNC_MINUTES: "30"
         run: python memecoin_bot.py ${{ inputs.test && '--test' || '--max-minutes 340' }}

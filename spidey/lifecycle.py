@@ -333,7 +333,12 @@ class Lifecycle:
         def rollback():
             rec.status, rec.death_posted, rec.death_reason, rec.death_at, rec.invalidation_reason = before
 
-        res = self._send("graveyard", M.ending_embed(typ, rec, reason, detail, now), None, reserve, rollback)
+        if not self.cfg.post_endings:             # quiet mode: end it in the records, post nothing
+            reserve()
+            self.store.save()
+            res = {"id": None}
+        else:
+            res = self._send("graveyard", M.ending_embed(typ, rec, reason, detail, now), None, reserve, rollback)
         if res and self.on_end:
             self.on_end(rec, reason, detail)
         return typ if res else None

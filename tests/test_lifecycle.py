@@ -34,6 +34,7 @@ class Env:
         self.path = str(tmp_path / "state.json")
         self.poster = FakePoster()
         self.cfg = Config()
+        self.cfg.post_endings = True             # most tests check the ending posts' content
         self.boot()
 
     def boot(self):
@@ -276,3 +277,11 @@ def test_store_atomic_and_corrupt_fallback(env, tmp_path):
     env.boot()
     assert env.store.get(CA) is not None                          # restored from the daily backup
     assert "restored" in env.store.load_error
+
+
+def test_endings_silent_by_default(env):
+    env.cfg.post_endings = False
+    env.lc.on_candidate(obs())
+    assert env.lc.kill(CA, "liquidity_pulled") == "DEAD"
+    assert env.store.get(CA).status == "dead" and env.poster.types() == ["NEW"]
+    assert M.tracker_stats(env.store.records.values(), env.clock())["dead"] == 1

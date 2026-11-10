@@ -101,6 +101,8 @@ class Config:
     blacklist_days: float = 30
     blacklist_max: int = 30000
     # ---------------- posting
+    post_endings: bool = False                  # INVALIDATED / DEAD posts (off: scanner + tracker only; still tracked)
+    post_postmortem: bool = False               # daily "why it died" post
     max_new_per_hour: int = 8
     # ---------------- files
     state_file: str = "state.json"

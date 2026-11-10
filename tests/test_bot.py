@@ -115,7 +115,6 @@ def test_clean_migrated_breakout_posts_signal_and_dev_sell_invalidates(w):
     w.dev_bal[("DEVX", m)] = 1_000_000 * 10 ** 6              # dev sells 0.4% of supply
     w.tick(3, step=61)
     assert w.bot.store.get(m).status == "invalidated"
-    assert [t for c, t in w.posts("graveyard") if t.startswith("INVALIDATED")]
     assert "DEVX" in w.bot.store.blacklist
     n = len(w.poster.posts)
     w.pairs[m] = [dex_pair(m, price=9e-4)]                     # 4.5x later: nothing more for an invalidated coin
@@ -147,7 +146,7 @@ def test_curve_coin_early_watch_then_dev_sell_invalidates(w):
     w.bot.on_feed([(w.t[0], "trade", m, {"txType": "sell", "mint": m, "traderPublicKey": "CDEV", "solAmount": 3,
                                           "tokenAmount": 10_000_000, "newTokenBalance": 0, "marketCapSol": mc * 0.9})])
     assert w.bot.store.get(m).status == "invalidated"
-    assert w.posts("graveyard")[-1][1].startswith("INVALIDATED")
+    assert not w.posts("graveyard")                          # endings are silent by default
 
 
 def test_scheduled_tracker_once_per_slot_and_late_catchup(w):
@@ -167,8 +166,8 @@ def test_scheduled_tracker_once_per_slot_and_late_catchup(w):
 def test_heartbeat_and_boot_go_to_bot_channel_only(w):
     w.bot.boot_message()
     w.bot.ops(w.t[0])
-    assert {c for c, _ in w.posts()} <= {"bot", "signals", "recap", "graveyard"}
-    assert any(t == "heartbeat" for c, t in w.posts("bot")) and any(t == "restart" for c, t in w.posts("bot"))
+    assert {c for c, _ in w.posts()} <= {"status", "signals", "recap"}
+    assert any(t == "heartbeat" for c, t in w.posts("status")) and any(t == "restart" for c, t in w.posts("status"))
 
 
 def test_schedule_slots_pt():

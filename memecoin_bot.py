@@ -5,19 +5,20 @@ What it posts (every coin post starts with TYPE • $TICKER • score, then the 
   #signals      NEW (once per CA, ever), UPDATE / BREAKOUT (only on a material change, 10-min cooldown),
                 2-hourly 24h tracker
   #wins         2X / 3X / 5X cards (once per level, from valid prints only)
-  #graveyard    INVALIDATED / DEAD (once per CA, with CA + jump link), daily "why it died" at 9:05 PM PT
+  (INVALIDATED / DEAD are tracked silently by default; set post_endings / post_postmortem to post them)
   #early-watch  lower-bar feed with a NOT A BUY CALL banner; promoted to #signals when it qualifies
   #recap        hourly recap 8 AM–10 PM PT, daily leaderboard 9 PM PT
-  #bot          boot/recovery message, 15-min heartbeat, poll-gap and flapping warnings
+  #spidey-status  boot/recovery message, 15-min heartbeat, poll-gap and flapping warnings
 A channel without its own webhook falls back to #signals (wins/graveyard fall back to the tracker webhook first;
-#bot messages only go to the log without a #bot webhook).
+status messages only go to the log without a status webhook).
 
 Where coins come from: live pump.fun feed (PumpPortal: launches, trades, migrations), GeckoTerminal new/trending
 pools, DexScreener profiles/boosts. Checks: Solana RPC (authorities, holders, curve, dev balance) + RugCheck.
 Every setting lives in spidey/config.py and can be changed with config.json or SPIDEY_* env vars.
 
-Webhooks (env): DISCORD_WEBHOOK_URL (#signals, required), DISCORD_WINS_WEBHOOK_URL, DISCORD_GRAVEYARD_WEBHOOK_URL,
-                DISCORD_EARLY_WEBHOOK_URL, DISCORD_RECAP_WEBHOOK_URL, DISCORD_BOT_WEBHOOK_URL,
+Webhooks (env): DISCORD_WEBHOOK_URL (#signals, required), DISCORD_WINS_WEBHOOK_URL, DISCORD_EARLY_WEBHOOK_URL,
+                DISCORD_RECAP_WEBHOOK_URL, DISCORD_STATUS_WEBHOOK_URL (heartbeat channel),
+                DISCORD_GRAVEYARD_WEBHOOK_URL (only used if post_endings is turned on),
                 DISCORD_TRACKER_WEBHOOK_URL (old setting: used for wins + graveyard if those aren't set)
 Optional:       SOLANA_RPC_URL (free Helius/QuickNode key = faster, fewer failed holder checks)
 
@@ -63,7 +64,7 @@ WEBHOOKS = {
     "graveyard": os.getenv("DISCORD_GRAVEYARD_WEBHOOK_URL") or os.getenv("DISCORD_TRACKER_WEBHOOK_URL"),
     "early-watch": os.getenv("DISCORD_EARLY_WEBHOOK_URL"),
     "recap": os.getenv("DISCORD_RECAP_WEBHOOK_URL"),
-    "bot": os.getenv("DISCORD_BOT_WEBHOOK_URL"),
+    "status": os.getenv("DISCORD_STATUS_WEBHOOK_URL"),
 }
 
 
@@ -78,7 +79,7 @@ class DiscordPoster(Poster):
     def url_for(self, channel: str) -> Optional[str]:
         if self.hooks.get(channel):
             return self.hooks[channel]
-        return None if channel == "bot" else self.hooks.get("signals")
+        return None if channel == "status" else self.hooks.get("signals")
 
     def _guild(self, url: str) -> Optional[str]:
         if url not in self.guilds:
@@ -94,7 +95,7 @@ class DiscordPoster(Poster):
         url = self.url_for(channel)
         if self.dry or not url:
             print(f"[{channel}] {(content + ' | ') if content else ''}{embed.get('title')}")
-            return {"id": None, "jump": None} if (self.dry or channel == "bot") else None
+            return {"id": None, "jump": None} if (self.dry or channel == "status") else None
         payload = {"embeds": [embed], "allowed_mentions": {"parse": []}}
         if content:
             payload["content"] = content
@@ -603,7 +604,7 @@ class Bot:
             self.feed.unwatch([rec.ca])
 
     def to_bot(self, text: str, title: str = "Spidey Bot"):
-        self.poster.send("bot", {"title": title, "description": text[:4000], "color": 0x747F8D})
+        self.poster.send("status", {"title": title, "description": text[:4000], "color": 0x747F8D})
 
     # ---------------- feed (curve coins)
     def on_feed(self, events):
@@ -1024,12 +1025,14 @@ class Bot:
             txt = f"ok • poll {poll} • active {active} • tracker 24h alerts {s['alerts']}"
             if gap and gap > self.cfg.heartbeat_minutes * 60 * 1.5:
                 txt += f" • recovered after {M.dur(gap)}"
-            self.poster.send("bot", {"title": "heartbeat", "description": txt, "color": 0x3BA55D})
+            self.poster.send("status", {"title": "heartbeat", "description": txt, "color": 0x3BA55D})
             self.store.meta["last_heartbeat"] = now
         # scheduled posts
         recs = list(self.store.records.values())
         for job, channel, build in (("tracker", "signals", M.tracker_embed), ("recap", "recap", M.recap_embed),
                                     ("leaderboard", "recap", M.leaderboard_embed), ("postmortem", "graveyard", M.postmortem_embed)):
+            if job == "postmortem" and not self.cfg.post_postmortem:
+                continue
             d = schedule.due(job, now, self.cfg, self.store.jobs)
             if not d:
                 continue
@@ -1194,9 +1197,8 @@ def send_test(poster: Poster):
     poster.send("signals", M.signal_embed("NEW", obs))
     poster.send("early-watch", M.signal_embed("NEW", obs), M.EARLY_BANNER)
     poster.send("wins", M.multiplier_embed(2, rec, 1.3e-4, 130_000, now))
-    poster.send("graveyard", M.ending_embed("DEAD", rec, "liquidity_pulled", "Liquidity $40K → $300.", now))
     poster.send("signals", M.tracker_embed([rec], now))
-    poster.send("bot", {"title": "heartbeat", "description": "ok • test post"})
+    poster.send("status", {"title": "heartbeat", "description": "ok • test post"})
     print("[test] sent one sample of each message type")
 
 
