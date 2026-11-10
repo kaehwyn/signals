@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       test:
-        description: "Send a fake sample alert + tracker posts instead of scanning"
+        description: "Send sample EARLY WATCH + BREAKOUT + tracker posts instead of scanning"
         type: boolean
         default: false
 
@@ -35,7 +35,6 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_TRACKER_WEBHOOK_URL: ${{ secrets.DISCORD_TRACKER_WEBHOOK_URL }}
           SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
-          BUBBLEMAPS_API_KEY: ${{ secrets.BUBBLEMAPS_API_KEY }}
         run: python memecoin_bot.py ${{ inputs.test && '--test' || '--max-minutes 340' }}
 
       - name: Save state
