@@ -1,593 +1,154 @@
 """
-Solana memecoin scanner for Discord. Two kinds of alerts, and a coin is only posted if it PASSES the rug checks:
+Spidey Bot — Solana memecoin signals for Discord (spec: "Spidey Bot Upgrade Spec", 10 Nov 2026).
 
-  🔎 EARLY WATCH  pump.fun coins still on the bonding curve (before migration). Read live from the PumpPortal feed
-                  and straight from the blockchain (bonding curve account, mint account, largest holders).
-  🔥 BREAKOUT     coins already trading on a DEX (migrated / new pools) showing breakout behaviour:
-                  liquidity vs MC, volume vs MC, more buys than sells, price speeding up. Checked with RugCheck + RPC.
+What it posts (every coin post starts with TYPE • $TICKER • score, then the full CA):
+  #signals      NEW (once per CA, ever), UPDATE / BREAKOUT (only on a material change, 10-min cooldown),
+                2-hourly 24h tracker
+  #wins         2X / 3X / 5X cards (once per level, from valid prints only)
+  #graveyard    INVALIDATED / DEAD (once per CA, with CA + jump link), daily "why it died" at 9:05 PM PT
+  #early-watch  lower-bar feed with a NOT A BUY CALL banner; promoted to #signals when it qualifies
+  #recap        hourly recap 8 AM–10 PM PT, daily leaderboard 9 PM PT
+  #bot          boot/recovery message, 15-min heartbeat, poll-gap and flapping warnings
+A channel without its own webhook falls back to #signals (wins/graveyard fall back to the tracker webhook first;
+#bot messages only go to the log without a #bot webhook).
 
-Rug checks (unknown data = fail, so nothing half-checked gets posted):
-  EARLY      mint + freeze authority revoked, no risky token-2022 extensions, top holder / top 10 / dev share
-             under the limits (bonding curve excluded), early "bundle" wallets hold little, dev isn't a serial
-             launcher or blacklisted, buyers look organic (not one wallet buying over and over)
-  BREAKOUT   all of the above where it applies + clean RugCheck (no danger flags), LP locked/burned,
-             enough holders, insiders under the limit
-Rug-dev blacklist: the dev of ANY coin the bot sees get rugged is blacklisted for 30 days (saved between runs),
-so their next launches are blocked:  dev dumps their bag and the price crashes on the buyers (bonding curve),
-liquidity pulled from a DEX pool, RugCheck marks it rugged, or an alerted coin dies / vanishes.
-Devs often switch wallets, so this catches some rug devs, not all. No filter can promise a coin won't rug or will run.
+Where coins come from: live pump.fun feed (PumpPortal: launches, trades, migrations), GeckoTerminal new/trending
+pools, DexScreener profiles/boosts. Checks: Solana RPC (authorities, holders, curve, dev balance) + RugCheck.
+Every setting lives in spidey/config.py and can be changed with config.json or SPIDEY_* env vars.
 
-After an alert the coin is tracked: 2x / 3x / 5x / 10x pings and a note if it dies.
-
-Discord webhooks:  DISCORD_WEBHOOK_URL (alerts)   DISCORD_TRACKER_WEBHOOK_URL (optional; tracker posts)
-Optional:          SOLANA_RPC_URL (a free Helius/QuickNode/etc. key is much faster than the public RPC)
+Webhooks (env): DISCORD_WEBHOOK_URL (#signals, required), DISCORD_WINS_WEBHOOK_URL, DISCORD_GRAVEYARD_WEBHOOK_URL,
+                DISCORD_EARLY_WEBHOOK_URL, DISCORD_RECAP_WEBHOOK_URL, DISCORD_BOT_WEBHOOK_URL,
+                DISCORD_TRACKER_WEBHOOK_URL (old setting: used for wins + graveyard if those aren't set)
+Optional:       SOLANA_RPC_URL (free Helius/QuickNode key = faster, fewer failed holder checks)
 
 Run:   pip install requests websocket-client
-       python memecoin_bot.py                  run forever
-       python memecoin_bot.py --max-minutes N  run N minutes, save, exit (GitHub Actions runs ~5h40m at a time)
-       python memecoin_bot.py --test           post sample alerts (fake coins) to the channel(s)
-       python memecoin_bot.py --probe MINT     run the rug checks on one token and print the result
+       python memecoin_bot.py                  run forever (use systemd/pm2/docker on a VPS — see DEPLOY.md)
+       python memecoin_bot.py --max-minutes N  run N minutes, save, exit (GitHub Actions)
+       python memecoin_bot.py --test           post one sample of every message type
+       python memecoin_bot.py --probe MINT     run the checks on one token and print them
 """
-import base64
 import csv
 import json
 import os
-import queue
 import re
 import signal as os_signal
-import struct
+import subprocess
 import sys
 import threading
 import time
 import traceback
 from collections import Counter, defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional
 
 import requests
 
-VERSION = "SCANNER-6.0"
-RPC_URL = os.getenv("SOLANA_RPC_URL") or "https://api.mainnet-beta.solana.com"
-DEXSCREENER = "https://api.dexscreener.com"
-GECKO = "https://api.geckoterminal.com/api/v2"
-GECKO_HEADERS = {"Accept": "application/json;version=20230302"}
-RUGCHECK = "https://api.rugcheck.xyz/v1"
-DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
-TRACKER_WEBHOOK = os.getenv("DISCORD_TRACKER_WEBHOOK_URL")
-PUMPPORTAL_URL = os.getenv("PUMPPORTAL_URL") or "wss://pumpportal.fun/api/data"
-PUMPPORTAL_KEY = os.getenv("PUMPPORTAL_API_KEY")
+from spidey import messages as M
+from spidey import schedule
+from spidey.catalyst import check_catalyst
+from spidey.config import Config, load_config
+from spidey.lifecycle import Lifecycle, Poster
+from spidey.sources import (FAILURES, LIMITERS, PUMP_SUPPLY_RAW, STABLES, PumpFeed, curve_state, fetch_dex_all_pairs,
+                            fetch_dex_feed, fetch_gecko_mints, fetch_rugcheck, fetch_sol_usd, holder_stats,
+                            largest_holders, mint_info, num, token_balance)
+from spidey.store import PT, Record, Store, fmt_pt, norm_ca
 
-SOL_MINT = "So11111111111111111111111111111111111111112"
-USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
-STABLES = {SOL_MINT, USDC_MINT, "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"}
-RAYDIUM_AMM_AUTHORITY = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"
-PUMP_SUPPLY_RAW = 1_000_000_000 * 10 ** 6          # every pump.fun coin: 1B tokens, 6 decimals
-PUMP_CURVE_TOKENS_RAW = 793_100_000 * 10 ** 6       # tokens sold on the curve before it completes
-RISKY_EXTENSIONS = {"transferHook", "permanentDelegate", "nonTransferable", "defaultAccountState", "confidentialTransferMint"}
-
-
-@dataclass
-class Config:
-    # ---------------- EARLY WATCH (pump.fun bonding curve)
-    early_min_age_min: float = 8
-    early_max_age_min: float = 120
-    early_min_mcap: float = 10_000
-    early_max_mcap: float = 60_000
-    early_min_buyers: int = 30
-    early_min_unique_ratio: float = 0.35      # unique buyers / buy txs (low = one wallet churning)
-    early_min_buy_sell_5m: float = 1.2        # SOL bought vs sold in the last 5 min
-    early_min_growth_5m: float = 0.10         # MC up at least 10% over 5 min
-    early_max_drawdown: float = 0.25          # not more than 25% under its peak
-    early_max_top1_pct: float = 4.0           # % of total supply (bonding curve excluded)
-    early_max_top10_pct: float = 22.0
-    early_max_dev_pct: float = 4.0
-    early_max_bundle_pct: float = 8.0         # wallets that bought in the first seconds, still held
-    bundle_window_s: float = 3.0
-    max_creator_launches_24h: int = 3
-    early_drop_after_min: float = 5           # after this, drop launches with < 8 buyers or MC < $5K
-    max_trade_subs: int = 400
-    # ---------------- BREAKOUT (DEX pairs)
-    br_min_age_min: float = 10
-    br_max_age_h: float = 24
-    br_min_mcap: float = 30_000
-    br_max_mcap: float = 3_000_000
-    br_min_liq: float = 15_000
-    br_min_liq_mcap: float = 0.08
-    br_min_vol_h1: float = 20_000
-    br_min_vol_mcap: float = 0.40
-    br_min_buy_sell_h1: float = 1.3
-    br_min_trades_h1: int = 150
-    br_min_chg_m5: float = 3
-    br_min_chg_h1: float = 10
-    br_max_chg_h1: float = 200
-    br_max_drawdown: float = 0.20
-    br_min_holders: int = 200
-    br_max_top1_pct: float = 10
-    br_max_top10_pct: float = 30
-    br_max_insider_pct: float = 10
-    br_max_dev_pct: float = 5
-    br_min_lp_locked: float = 90
-    max_pairs: int = 800
-    pair_refresh_s: float = 30
-    # ---------------- rug-dev blacklist
-    rug_dev_sold_share: float = 0.80          # dev sold >= 80% of the most they held...
-    rug_price_drop: float = 0.50              # ...and MC fell >= 50% from its peak...
-    rug_min_pump: float = 1.30                # ...after people bought it up >= 1.3x from launch
-    rug_min_victims: int = 5                  # ...with at least this many buyers
-    rug_liq_drop: float = 0.70                # DEX pool lost >= 70% of its liquidity...
-    rug_liq_window_s: float = 900             # ...within 15 min
-    rug_min_liq: float = 5_000                # (only counts if the pool had at least this much)
-    blacklist_days: float = 30
-    blacklist_max: int = 30_000
-    call_missing_min: float = 10              # alerted coin gone from DexScreener this long = rugged
-    call_liq_drop: float = 0.75               # alerted coin lost >= 75% of its liquidity = rugged
-    # ---------------- shared
-    recheck_s: float = 60                     # min time between deep checks of the same coin
-    rugcheck_ttl_s: float = 180
-    max_alerts_per_hour: int = 8
-    quiet_post_h: float = 2                   # "NO QUALITY PLAYS RIGHT NOW" after this long with no alert
-    # ---------------- tracker
-    track_hours: float = 24
-    milestones: tuple = (2, 3, 5, 10, 20, 50, 100)
-    dead_ratio: float = 0.40                  # price <= 40% of the alert price = dead
-    calls_keep_days: float = 7
-    # ---------------- files
-    log_file: str = "radar_log.csv"
-    signals_file: str = "signals.jsonl"
-    state_file: str = "state.json"
-    status_file: str = "last_status.txt"
-
-
-# ======================================================================= HTTP (rate limited per host)
-class Limiter:
-    def __init__(self, min_interval: float):
-        self.min_interval, self.lock = min_interval, threading.Lock()
-        self.next_ok = self.blocked_until = 0.0
-        self.calls = deque()
-
-    def acquire(self, max_wait: float) -> bool:
-        with self.lock:
-            now = time.time()
-            if now < self.blocked_until:
-                return False
-            start = max(now, self.next_ok)
-            if start - now > max_wait:
-                return False
-            self.next_ok = start + self.min_interval
-            self.calls.append(start)
-        if start > now:
-            time.sleep(start - now)
-        return True
-
-    def penalize(self, seconds: float):
-        self.blocked_until = max(self.blocked_until, time.time() + seconds)
-
-    def per_min(self) -> int:
-        cut = time.time() - 60
-        while self.calls and self.calls[0] < cut:
-            self.calls.popleft()
-        return len(self.calls)
-
-
-LIMITERS = {"dex": Limiter(0.3), "dexfeed": Limiter(1.2), "gecko": Limiter(3.0), "rugcheck": Limiter(1.0),
-            "rpc": Limiter(0.12 if os.getenv("SOLANA_RPC_URL") else 0.35)}
-
-
-def http_json(host, url, params=None, method="GET", body=None, headers=None, max_wait=0.5, timeout=10):
-    """(json or None, status). status 0 = limiter said wait, -1 = network error."""
-    lim = LIMITERS[host]
-    if not lim.acquire(max_wait):
-        return None, 0
-    try:
-        r = requests.request(method, url, params=params, json=body, headers=headers, timeout=timeout)
-    except Exception as e:
-        print(f"[warn] {host} request failed: {str(e)[:120]}")
-        return None, -1
-    if r.status_code == 429:
-        try:
-            ra = float(r.headers.get("Retry-After", 20))
-        except ValueError:
-            ra = 20.0
-        lim.penalize(max(5.0, min(ra, 120.0)))
-        return None, 429
-    try:
-        return r.json(), r.status_code
-    except ValueError:
-        return None, r.status_code
-
-
-# ======================================================================= helpers
-def num(v):
-    try:
-        return None if v is None else float(v)
-    except (TypeError, ValueError):
-        return None
-
-
-def usd(n):
-    n = num(n)
-    if n is None:
-        return "n/a"
-    for div, suf in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
-        if abs(n) >= div:
-            return f"${n / div:.1f}{suf}" if n / div < 100 else f"${n / div:.0f}{suf}"
-    return f"${n:,.0f}"
-
-
-def sign_pct(n):
-    n = num(n)
-    return "n/a" if n is None else (f"{n:+.0f}%" if abs(n) >= 10 else f"{n:+.1f}%")
-
-
-def ago(seconds: float) -> str:
-    m = max(0, int(seconds // 60))
-    return f"{m}m" if m < 60 else (f"{m // 60}h {m % 60}m" if m < 1440 else f"{m // 1440}d")
-
-
-def now_iso():
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-
-def parse_iso_ms(s):
-    try:
-        return datetime.fromisoformat(str(s).replace("Z", "+00:00")).timestamp() * 1000 if s else None
-    except ValueError:
-        return None
-
-
-def check(ok: Optional[bool], label: str) -> tuple:
-    """(passed, line). None (could not verify) counts as a fail."""
-    return (ok is True, f"{'✅' if ok else ('❔' if ok is None else '❌')} {label}")
+VERSION = "SPIDEY-7.0"
+WEBHOOKS = {
+    "signals": os.getenv("DISCORD_WEBHOOK_URL"),
+    "wins": os.getenv("DISCORD_WINS_WEBHOOK_URL") or os.getenv("DISCORD_TRACKER_WEBHOOK_URL"),
+    "graveyard": os.getenv("DISCORD_GRAVEYARD_WEBHOOK_URL") or os.getenv("DISCORD_TRACKER_WEBHOOK_URL"),
+    "early-watch": os.getenv("DISCORD_EARLY_WEBHOOK_URL"),
+    "recap": os.getenv("DISCORD_RECAP_WEBHOOK_URL"),
+    "bot": os.getenv("DISCORD_BOT_WEBHOOK_URL"),
+}
 
 
 # ======================================================================= Discord
-def _post(url: str, payload: dict) -> bool:
-    try:
-        for _ in range(3):
-            r = requests.post(url, json=payload, timeout=10)
+class DiscordPoster(Poster):
+    """Webhook per channel. ?wait=true returns the message id, so posts can carry jump links."""
+
+    def __init__(self, hooks: dict, dry_run: bool = False):
+        self.hooks, self.dry = hooks, dry_run
+        self.guilds = {}
+
+    def url_for(self, channel: str) -> Optional[str]:
+        if self.hooks.get(channel):
+            return self.hooks[channel]
+        return None if channel == "bot" else self.hooks.get("signals")
+
+    def _guild(self, url: str) -> Optional[str]:
+        if url not in self.guilds:
+            try:
+                r = requests.get(url, timeout=10)
+                self.guilds[url] = (r.json() or {}).get("guild_id") if r.status_code == 200 else None
+            except Exception:
+                return None
+        return self.guilds[url]
+
+    def send(self, channel: str, embed: dict, content: Optional[str] = None) -> Optional[dict]:
+        embed = {k: v for k, v in embed.items() if not k.startswith("_")}
+        url = self.url_for(channel)
+        if self.dry or not url:
+            print(f"[{channel}] {(content + ' | ') if content else ''}{embed.get('title')}")
+            return {"id": None, "jump": None} if (self.dry or channel == "bot") else None
+        payload = {"embeds": [embed], "allowed_mentions": {"parse": []}}
+        if content:
+            payload["content"] = content
+        for attempt in range(3):
+            try:
+                r = requests.post(url + ("&" if "?" in url else "?") + "wait=true", json=payload, timeout=15)
+            except Exception as e:
+                print(f"[warn] discord {channel}: {e}")
+                time.sleep(2 * (attempt + 1))
+                continue
             if r.status_code == 429:
                 try:
-                    wait = float(r.json().get("retry_after", 1))
+                    time.sleep(min(float(r.json().get("retry_after", 1)), 10))
                 except Exception:
-                    wait = 1.0
-                time.sleep(min(wait, 10))
+                    time.sleep(1)
                 continue
             if r.status_code >= 400:
-                print(f"[warn] discord returned {r.status_code}: {r.text[:200]}")
-                return False
-            return True
-    except Exception as e:
-        print(f"[warn] discord post failed: {e}")
-    return False
-
-
-def notify(embed: dict, hook=None) -> bool:
-    url = hook or DISCORD_WEBHOOK
-    if not url:
-        print(f"[discord off] {embed.get('title')}")
-        return False
-    return _post(url, {"embeds": [embed], "allowed_mentions": {"parse": []}})
-
-
-# ======================================================================= on-chain (RPC)
-def rpc(method, params, max_wait=20):
-    data, _ = http_json("rpc", RPC_URL, method="POST", max_wait=max_wait, timeout=15,
-                        body={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
-    return data.get("result") if isinstance(data, dict) and "result" in data else None
-
-
-def mint_info(mint) -> Optional[dict]:
-    """Authorities, supply, decimals and risky token-2022 extensions from the mint account."""
-    res = rpc("getAccountInfo", [mint, {"encoding": "jsonParsed"}])
-    try:
-        info = res["value"]["data"]["parsed"]["info"]
-    except Exception:
-        return None
-    bad = []
-    for ext in info.get("extensions") or []:
-        name = ext.get("extension") if isinstance(ext, dict) else None
-        if name in RISKY_EXTENSIONS:
-            bad.append(name)
-        elif name == "transferFeeConfig":
-            st = ext.get("state") or {}
-            fee = max(num((st.get("newerTransferFee") or {}).get("transferFeeBasisPoints")) or 0,
-                      num((st.get("olderTransferFee") or {}).get("transferFeeBasisPoints")) or 0)
-            if fee > 0:
-                bad.append(f"transfer fee {fee / 100:.1f}%")
-    return {"revoked": info.get("mintAuthority") is None and info.get("freezeAuthority") is None,
-            "supply": int(info.get("supply") or 0), "decimals": info.get("decimals"), "bad_ext": bad}
-
-
-def decode_curve(raw: bytes) -> Optional[dict]:
-    """pump.fun bonding curve account: 8-byte discriminator, 5 x u64, complete flag."""
-    if len(raw) < 49:
-        return None
-    v_tok, v_sol, r_tok, r_sol, supply = struct.unpack_from("<QQQQQ", raw, 8)
-    complete = bool(raw[48])
-    progress = max(0.0, min(1.0, 1 - r_tok / PUMP_CURVE_TOKENS_RAW)) if r_tok <= PUMP_CURVE_TOKENS_RAW else 0.0
-    price_sol = (v_sol / 1e9) / (v_tok / 1e6) if v_tok else None
-    return {"reserve_sol": r_sol / 1e9, "progress": 1.0 if complete else progress, "complete": complete,
-            "mcap_sol": price_sol * (supply / 1e6) if price_sol else None, "supply_raw": supply}
-
-
-def curve_state(curve_key) -> Optional[dict]:
-    res = rpc("getAccountInfo", [curve_key, {"encoding": "base64"}])
-    try:
-        return decode_curve(base64.b64decode(res["value"]["data"][0]))
-    except Exception:
-        return None
-
-
-def largest_holders(mint, exclude_owners=()) -> Optional[list]:
-    """[(owner, raw amount)] for the 20 largest token accounts, merged per owner, pools/curves excluded. None = failed."""
-    res = rpc("getTokenLargestAccounts", [mint])
-    try:
-        accts = [(a["address"], int(a["amount"])) for a in res["value"]]
-    except Exception:
-        return None
-    if not accts:
-        return []
-    res2 = rpc("getMultipleAccounts", [[a for a, _ in accts], {"encoding": "jsonParsed"}])
-    try:
-        owners = [((v or {}).get("data") or {}).get("parsed", {}).get("info", {}).get("owner") for v in res2["value"]]
-    except Exception:
-        return None
-    skip = set(x for x in exclude_owners if x) | {RAYDIUM_AMM_AUTHORITY}
-    merged = Counter()
-    for (addr, amt), owner in zip(accts, owners):
-        if amt <= 0 or addr in skip or (owner or addr) in skip:
-            continue
-        merged[owner or addr] += amt
-    return merged.most_common()
-
-
-def holder_stats(holders: Optional[list], supply_raw: int, dev: Optional[str] = None) -> dict:
-    if holders is None or not supply_raw:
-        return {"top1": None, "top10": None, "dev": None}
-    pcts = [a / supply_raw * 100 for _, a in holders]
-    dev_pct = next((a / supply_raw * 100 for o, a in holders if dev and o == dev), 0.0) if dev else None
-    return {"top1": pcts[0] if pcts else 0.0, "top10": sum(pcts[:10]), "dev": dev_pct}
-
-
-# ======================================================================= DexScreener / Gecko / RugCheck
-def fetch_dex_pairs(mints: list):
-    """Up to 30 tokens per call -> {mint: deepest pair where the token is the base}; None if unavailable."""
-    if not mints:
-        return {}
-    data, st = http_json("dex", f"{DEXSCREENER}/tokens/v1/solana/{','.join(mints)}", max_wait=2.0)
-    if st != 200 or data is None:
-        return None
-    pairs = data if isinstance(data, list) else (data.get("pairs") or [])
-    want, best = set(mints), {}
-    for p in pairs:
-        if not isinstance(p, dict) or p.get("chainId") != "solana":
-            continue
-        m = (p.get("baseToken") or {}).get("address")
-        if m in want:
-            liq = num((p.get("liquidity") or {}).get("usd")) or 0
-            if m not in best or liq > (num((best[m].get("liquidity") or {}).get("usd")) or 0):
-                best[m] = p
-    return best
-
-
-def fetch_sol_usd() -> Optional[float]:
-    data, st = http_json("dex", f"{DEXSCREENER}/tokens/v1/solana/{SOL_MINT}", max_wait=2.0)
-    if st != 200 or not isinstance(data, list):
-        return None
-    best = None
-    for p in data:
-        if (p.get("baseToken") or {}).get("address") == SOL_MINT and (p.get("quoteToken") or {}).get("address") in STABLES:
-            liq = num((p.get("liquidity") or {}).get("usd")) or 0
-            if best is None or liq > best[0]:
-                best = (liq, num(p.get("priceUsd")))
-    return best[1] if best else None
-
-
-def fetch_dex_feed(path: str) -> list:
-    data, st = http_json("dexfeed", f"{DEXSCREENER}{path}")
-    if st != 200 or not isinstance(data, list):
-        return []
-    return [d["tokenAddress"] for d in data if isinstance(d, dict) and d.get("chainId") == "solana" and d.get("tokenAddress")]
-
-
-def fetch_gecko_mints(kind: str) -> list:
-    data, st = http_json("gecko", f"{GECKO}/networks/solana/{kind}", headers=GECKO_HEADERS)
-    if st != 200 or not isinstance(data, dict):
-        return []
-    out = []
-    for pool in data.get("data") or []:
-        rel = pool.get("relationships") or {}
-        base = (((rel.get("base_token") or {}).get("data") or {}).get("id") or "").split("_", 1)[-1]
-        quote = (((rel.get("quote_token") or {}).get("data") or {}).get("id") or "").split("_", 1)[-1]
-        mint = base if base and base not in STABLES else quote
-        if mint and mint not in STABLES:
-            out.append(mint)
-    return out
-
-
-def parse_rugcheck(rep) -> Optional[dict]:
-    if not isinstance(rep, dict):
-        return None
-    known = rep.get("knownAccounts") or {}
-
-    def is_pool(h):
-        for k in (h.get("address"), h.get("owner")):
-            ka = known.get(k) if k else None
-            if isinstance(ka, dict):
-                typ, name = str(ka.get("type", "")).upper(), str(ka.get("name", "")).lower()
-                if typ in ("AMM", "LP", "POOL", "BONDING", "CURVE") or any(w in name for w in ("bonding curve", "amm", "pool", "liquidity")):
-                    return True
-        return False
-
-    holders = [h for h in (rep.get("topHolders") or []) if isinstance(h, dict) and not is_pool(h)]
-    pcts = sorted((p for p in (num(h.get("pct")) for h in holders) if p is not None), reverse=True)
-    risks = [r for r in (rep.get("risks") or []) if isinstance(r, dict)]
-    lp = [v for v in (num(((m or {}).get("lp") or {}).get("lpLockedPct")) for m in (rep.get("markets") or [])) if v is not None]
-    tok = rep.get("token") if isinstance(rep.get("token"), dict) else {}
-    creator = rep.get("creator") if isinstance(rep.get("creator"), str) else None
-    revoked = None
-    for src in (rep, tok):
-        if "mintAuthority" in src and "freezeAuthority" in src:
-            revoked = not src.get("mintAuthority") and not src.get("freezeAuthority")
-            break
-    th = num(rep.get("totalHolders"))
-    return {
-        "holders": int(th) if th is not None else None,
-        "top1": pcts[0] if pcts else None,
-        "top10": sum(pcts[:10]) if pcts else None,
-        "insiders": sum((num(h.get("pct")) or 0) for h in holders if h.get("insider")) if any("insider" in h for h in holders) else None,
-        "lp_locked": max(lp) if lp else None,
-        "rugged": bool(rep.get("rugged")),
-        "dangers": [str(r.get("name")) for r in risks if str(r.get("level", "")).lower() == "danger"],
-        "creator": creator,
-        "dev": next((num(h.get("pct")) for h in holders if creator and creator in (h.get("address"), h.get("owner"))), 0.0) if creator else None,
-        "revoked": revoked,
-    }
-
-
-def fetch_rugcheck(mint) -> Optional[dict]:
-    data, st = http_json("rugcheck", f"{RUGCHECK}/tokens/{mint}/report", max_wait=30, timeout=20)
-    return parse_rugcheck(data) if st == 200 else None
-
-
-# ======================================================================= live pump.fun feed
-def classify_feed_event(msg) -> Optional[tuple]:
-    """('launch' | 'trade' | 'migration', mint, msg) from a PumpPortal message."""
-    if not isinstance(msg, dict):
-        return None
-    mint = msg.get("mint")
-    if not isinstance(mint, str) or len(mint) < 32 or mint in STABLES:
-        return None
-    tx = str(msg.get("txType") or "").lower()
-    if tx in ("buy", "sell"):
-        return ("trade", mint, msg)
-    if "migrat" in tx:
-        return ("migration", mint, msg)
-    if tx == "create":
-        return ("launch", mint, msg)
-    return None
-
-
-class PumpFeed:
-    """ONE websocket to PumpPortal (their rule): new tokens, migrations, and trades for the coins we watch.
-    Background thread; reconnects with backoff and re-subscribes."""
-
-    def __init__(self, url: str = PUMPPORTAL_URL):
-        self.url = url + (f"?api-key={PUMPPORTAL_KEY}" if PUMPPORTAL_KEY else "")
-        self.events = queue.Queue(maxsize=100_000)
-        self.cmds = queue.Queue()
-        self.subs = set()                       # owned by the feed thread
-        self.stop, self.connected, self.err, self.thread = False, False, "", None
-
-    def start(self) -> bool:
-        try:
-            import websocket  # noqa: F401
-        except ImportError:
-            self.err = "websocket-client not installed"
-            print(f"[feed] {self.err}")
-            return False
-        self.thread = threading.Thread(target=self._run, name="pump-feed", daemon=True)
-        self.thread.start()
-        return True
-
-    def watch(self, mints):
-        if mints:
-            self.cmds.put(("sub", list(mints)))
-
-    def unwatch(self, mints):
-        if mints:
-            self.cmds.put(("unsub", list(mints)))
-
-    @staticmethod
-    def _send_keys(ws, method, keys):
-        keys = list(keys)
-        for i in range(0, len(keys), 100):
-            ws.send(json.dumps({"method": method, "keys": keys[i:i + 100]}))
-
-    def _run(self):
-        import websocket
-        backoff = 5
-        while not self.stop:
-            ws = None
+                print(f"[warn] discord {channel} {r.status_code}: {r.text[:200]}")
+                return None
             try:
-                ws = websocket.create_connection(self.url, timeout=10)
-                ws.send(json.dumps({"method": "subscribeNewToken"}))
-                ws.send(json.dumps({"method": "subscribeMigration"}))
-                if self.subs:
-                    self._send_keys(ws, "subscribeTokenTrade", self.subs)
-                ws.settimeout(1)
-                self.connected, self.err, backoff = True, "", 5
-                print("[feed] connected")
-                last_ping = time.time()
-                while not self.stop:
-                    while True:
-                        try:
-                            op, keys = self.cmds.get_nowait()
-                        except queue.Empty:
-                            break
-                        if op == "sub":
-                            new = [k for k in keys if k not in self.subs]
-                            self.subs.update(new)
-                            if new:
-                                self._send_keys(ws, "subscribeTokenTrade", new)
-                        else:
-                            old = [k for k in keys if k in self.subs]
-                            self.subs.difference_update(old)
-                            if old:
-                                self._send_keys(ws, "unsubscribeTokenTrade", old)
-                    if time.time() - last_ping > 20:
-                        ws.ping()
-                        last_ping = time.time()
-                    try:
-                        raw = ws.recv()
-                    except websocket.WebSocketTimeoutException:
-                        continue
-                    if not raw:
-                        break
-                    try:
-                        ev = classify_feed_event(json.loads(raw))
-                    except ValueError:
-                        continue
-                    if ev:
-                        try:
-                            self.events.put_nowait((time.time(),) + ev)
-                        except queue.Full:
-                            pass
-            except Exception as e:
-                self.err = str(e)[:150]
-                print(f"[feed] disconnected: {self.err}")
-            finally:
-                self.connected = False
-                try:
-                    if ws:
-                        ws.close()
-                except Exception:
-                    pass
-            if not self.stop:
-                time.sleep(backoff)
-                backoff = min(backoff * 2, 120)
-
-    def drain(self, limit=20_000) -> list:
-        out = []
-        while len(out) < limit:
-            try:
-                out.append(self.events.get_nowait())
-            except queue.Empty:
-                break
-        return out
-
-    def status(self) -> str:
-        if self.thread is None:
-            return "off" + (f" ({self.err})" if self.err else "")
-        return "connected" if self.connected else "reconnecting" + (f" ({self.err})" if self.err else "")
+                msg = r.json()
+            except ValueError:
+                return {"id": None, "jump": None}
+            gid = self._guild(url)
+            jump = f"https://discord.com/channels/{gid}/{msg.get('channel_id')}/{msg.get('id')}" if gid and msg.get("id") else None
+            return {"id": msg.get("id"), "jump": jump}
+        return None
 
 
-# ======================================================================= state objects
+# ======================================================================= helpers
+def ramp(x, lo, hi):
+    if x is None:
+        return None
+    if lo == hi:
+        return 100.0 if x >= hi else 0.0
+    return 100.0 * max(0.0, min(1.0, (x - lo) / (hi - lo)))
+
+
+def wavg(parts):
+    parts = [(v, w) for v, w in parts if v is not None]
+    return sum(v * w for v, w in parts) / sum(w for _, w in parts) if parts else 0.0
+
+
+def line(ok: Optional[bool], text: str) -> str:
+    return f"{'✅' if ok else ('❔' if ok is None else '❌')} {text}"
+
+
+def pfmt(x, d=1):
+    return "n/a" if x is None else f"{x:.{d}f}%"
+
+
+# ======================================================================= curve coins (live feed)
 @dataclass
 class Launch:
-    """A pump.fun coin on the bonding curve, built from live feed events."""
     mint: str
     name: str
     symbol: str
@@ -596,24 +157,25 @@ class Launch:
     t0: float
     mcap_sol: float = 0.0
     peak_sol: float = 0.0
+    mc0: float = 0.0
     n_buys: int = 0
     n_sells: int = 0
     buyers: set = field(default_factory=set)
-    sellers: set = field(default_factory=set)
-    balances: dict = field(default_factory=dict)     # wallet -> latest token balance (raw, 6 dp -> tokens)
-    early: dict = field(default_factory=dict)        # wallet -> tokens bought in the first seconds
-    flow: deque = field(default_factory=lambda: deque(maxlen=4000))   # (t, side, sol)
-    hist: deque = field(default_factory=lambda: deque(maxlen=400))    # (t, mcap_sol)
+    balances: dict = field(default_factory=dict)       # wallet -> tokens (UI units)
+    first_buy: dict = field(default_factory=dict)      # wallet -> seconds after launch of first buy
+    flow: deque = field(default_factory=lambda: deque(maxlen=6000))
+    hist: deque = field(default_factory=lambda: deque(maxlen=800))
     dev_sold: bool = False
     dev_max: float = 0.0
-    mc0: float = 0.0
     rugged: bool = False
     last_trade: float = 0.0
     last_eval: float = 0.0
     last_deep: float = 0.0
-    blocked: str = ""
+    chain: dict = field(default_factory=dict)          # last on-chain check
+    chain_t: float = 0.0
 
-    def on_trade(self, t: float, m: dict):
+    def on_trade(self, t: float, m: dict) -> Optional[float]:
+        """Returns tokens sold if this trade was a DEV SELL, else None."""
         side, who = str(m.get("txType")).lower(), m.get("traderPublicKey")
         sol, tokens = num(m.get("solAmount")) or 0.0, num(m.get("tokenAmount")) or 0.0
         mc = num(m.get("marketCapSol"))
@@ -626,22 +188,21 @@ class Launch:
             self.balances[who] = bal
             if who == self.creator:
                 self.dev_max = max(self.dev_max, bal)
+        dev_sell = None
         if side == "buy":
             self.n_buys += 1
             if who and who != self.creator:
                 self.buyers.add(who)
-            if who and t - self.t0 <= Config.bundle_window_s:
-                self.early[who] = self.early.get(who, 0.0) + tokens
+                self.first_buy.setdefault(who, t - self.t0)
         else:
             self.n_sells += 1
-            if who:
-                self.sellers.add(who)
             if who == self.creator:
-                self.dev_sold = True
+                self.dev_sold, dev_sell = True, tokens
         self.flow.append((t, side, sol))
         self.last_trade = t
+        return dev_sell
 
-    def mcap_at(self, t: float) -> Optional[float]:
+    def mcap_at(self, t):
         best = None
         for ts, mc in self.hist:
             if ts <= t:
@@ -650,10 +211,10 @@ class Launch:
                 break
         return best
 
-    def flow_5m(self, now: float) -> tuple:
+    def flow_since(self, t0):
         b = s = 0.0
         for t, side, sol in reversed(self.flow):
-            if t < now - 300:
+            if t < t0:
                 break
             if side == "buy":
                 b += sol
@@ -661,10 +222,104 @@ class Launch:
                 s += sol
         return b, s
 
-    def bundle_tokens(self) -> float:
-        return sum(self.balances.get(w, amt) for w, amt in self.early.items())
+    def group_pct(self, lo_s, hi_s) -> float:
+        """% of supply still held by wallets whose first buy came lo_s..hi_s seconds after launch (dev excluded)."""
+        tok = sum(self.balances.get(w, 0.0) for w, dt in self.first_buy.items() if lo_s <= dt <= hi_s)
+        return tok / 1e9 * 100
+
+    def holders(self) -> int:
+        return sum(1 for w, b in self.balances.items() if b > 0 and w != self.curve)
 
 
+def launch_rug_reason(l: Launch, cfg: Config) -> Optional[str]:
+    if l.rugged or not l.dev_sold or l.dev_max <= 0 or not l.mc0 or not l.peak_sol:
+        return None
+    if (l.balances.get(l.creator, 0.0) <= l.dev_max * (1 - cfg.rug_dev_sold_share) and l.peak_sol >= l.mc0 * cfg.rug_min_pump
+            and l.mcap_sol <= l.peak_sol * (1 - cfg.rug_price_drop) and len(l.buyers) >= cfg.rug_min_victims):
+        return f"dev dumped, MC -{(1 - l.mcap_sol / l.peak_sol) * 100:.0f}% from peak"
+    return None
+
+
+def curve_observation(l: Launch, now: float, sol_usd: float, cfg: Config, blacklisted: bool, launches_24h: int) -> dict:
+    """Score + checks for a bonding-curve coin (§5.3: liquidity / LP are n/a here, never a reason to reject)."""
+    chain = l.chain or {}
+    mi, hs, cs = chain.get("mint"), chain.get("holders") or {}, chain.get("curve") or {}
+    mc = l.mcap_sol * sol_usd
+    b5, s5 = l.flow_since(now - 300)
+    bh, sh = l.flow_since(now - 3600)
+    past5, past60 = l.mcap_at(now - 300), l.mcap_at(now - 3600) or l.mc0
+    g5 = (l.mcap_sol / past5 - 1) * 100 if past5 else None
+    g60 = (l.mcap_sol / past60 - 1) * 100 if past60 else None
+    dev = hs.get("dev")
+    if l.creator in l.balances:
+        fd = l.balances[l.creator] / 1e9 * 100
+        dev = fd if dev is None else max(dev, fd)
+    bundler = l.group_pct(0, cfg.bundle_window_s)
+    sniper = l.group_pct(cfg.bundle_window_s + 1e-9, cfg.sniper_window_s)
+    holders, top10 = l.holders(), hs.get("top10")
+    uniq = len(l.buyers) / l.n_buys if l.n_buys else None
+    metrics = {"age_s": now - l.t0, "vol_m5": (b5 + s5) * sol_usd, "vol_h1": (bh + sh) * sol_usd, "chg_m5": g5, "chg_h1": g60,
+               "buys": l.n_buys, "sells": l.n_sells, "buyers": len(l.buyers), "holders": holders, "top10": top10,
+               "top10_warn": top10 is not None and cfg.top10_warn_pct < top10 <= cfg.max_top10_pct,
+               "dev": dev, "insiders": None, "bundler": bundler, "sniper": sniper}
+    # ---- hard safety (rejects even early-watch)
+    hard = []
+    if mi is None:
+        hard.append("authority check n/a")
+    elif not mi.get("revoked"):
+        hard.append("mint/freeze authority on")
+    elif mi.get("bad_ext"):
+        hard.append("risky token settings")
+    if blacklisted:
+        hard.append("dev blacklisted (past rug)")
+    if launches_24h > cfg.max_creator_launches_24h:
+        hard.append(f"dev launched {launches_24h} coins in 24h")
+    # ---- quality gates (§5.1 values that apply on the curve)
+    gates = []
+    if top10 is None:
+        gates.append("top 10 n/a")
+    elif top10 > cfg.max_top10_pct:
+        gates.append(f"top 10 {top10:.0f}%")
+    if dev is not None and dev > cfg.max_dev_holdings_pct:
+        gates.append(f"dev holds {dev:.1f}%")
+    if bundler > cfg.max_bundler_pct:
+        gates.append(f"bundlers {bundler:.0f}%")
+    if sniper > cfg.max_sniper_pct:
+        gates.append(f"snipers {sniper:.0f}%")
+    checks = [line(mi.get("revoked") if mi else None, "Mint & freeze revoked"),
+              line((not mi.get("bad_ext")) if mi else None, "No risky token settings"),
+              line(None if top10 is None else top10 <= cfg.max_top10_pct, f"Top 10 {pfmt(top10)}" + (" (30–40% warn)" if metrics["top10_warn"] else "")),
+              line(None if dev is None else dev <= cfg.max_dev_holdings_pct, f"Dev holds {pfmt(dev)}" + (" (sold some)" if l.dev_sold else "")),
+              line(bundler <= cfg.max_bundler_pct, f"Bundlers {pfmt(bundler)}"),
+              line(sniper <= cfg.max_sniper_pct, f"Snipers {pfmt(sniper)}"),
+              line(not blacklisted, "Dev not blacklisted"),
+              "❔ Liquidity / LP: n/a on the bonding curve"]
+    score = round(wavg([(ramp(len(l.buyers), 20, 150), 20), (ramp(uniq, 0.3, 0.8), 10),
+                        (ramp(b5 / s5 if s5 else (3 if b5 else 0), 1.0, 3.0), 15), (ramp(g5, 0, 50), 15),
+                        (ramp(-(top10 or 100), -40, -12), 15), (ramp(-(dev or 0), -8, 0), 10),
+                        (ramp(-(bundler + sniper), -40, 0), 15)]))
+    momentum = (cfg.curve_min_mcap <= mc <= cfg.curve_max_mcap and l.peak_sol and l.mcap_sol >= l.peak_sol * (1 - cfg.curve_max_drawdown)
+                and b5 >= s5 * cfg.curve_min_buy_sell_5m and b5 > 0 and (now - l.t0) / 60 >= cfg.curve_min_age_min)
+    breakout = bool(g5 is not None and g5 >= 30 and b5 >= 2 * s5 and momentum)
+    reasons = [f"{len(l.buyers)} unique buyers ({uniq * 100:.0f}% unique)" if uniq else None,
+               f"MC {g5:+.0f}% in 5m" if g5 is not None else None,
+               f"5m flow {b5:.1f} SOL in / {s5:.1f} out",
+               f"curve {cs['progress'] * 100:.0f}% · reserve {cs['reserve_sol']:.1f} SOL" if cs else None]
+    return {"ca": l.mint, "ticker": l.symbol, "name": l.name, "source": "curve", "price": mc / 1e9 if mc else None,
+            "price_sol": l.mcap_sol / 1e9, "mc": mc, "liq": None, "pool": l.curve, "pool_dex": "pumpfun", "curve_key": l.curve,
+            "dev_wallet": l.creator, "dev_balance": l.balances.get(l.creator, 0.0) * 1e6, "metrics": metrics, "checks": checks,
+            "reasons": [r for r in reasons if r], "hard_fails": hard, "gate_fails": gates, "raw_score": score,
+            "bundle_known": True, "momentum": bool(momentum), "breakout": breakout,
+            "breakout_reasons": [f"MC {g5:+.0f}% in 5m with {b5:.1f} SOL bought vs {s5:.1f} sold"] if breakout else [],
+            "safety": {"fails": real_flags(hard + [g for g in gates if g.startswith(("bundlers", "snipers"))])}}
+
+
+def real_flags(fails: list) -> list:
+    """Only definite failures count as a 'new safety flag' (a lookup that returned n/a is not news)."""
+    return [f for f in fails if "n/a" not in f and "unknown" not in f]
+
+
+# ======================================================================= DEX pairs
 @dataclass
 class Pair:
     mint: str
@@ -672,357 +327,249 @@ class Pair:
     name: str = ""
     pair: str = ""
     dex: str = ""
-    url: str = ""
     created_ms: Optional[float] = None
     snap: dict = field(default_factory=dict)
     peak_price: float = 0.0
     misses: int = 0
-    added: float = 0.0
     next_refresh: float = 0.0
     last_eval: float = 0.0
     rc: Optional[dict] = None
     rc_t: float = 0.0
-    blocked: str = ""
+    chain: dict = field(default_factory=dict)
+    chain_t: float = 0.0
     creator: str = ""
-    liq_hist: deque = field(default_factory=lambda: deque(maxlen=60))   # (t, liq usd)
+    liq_hist: deque = field(default_factory=lambda: deque(maxlen=60))
     rugged: bool = False
-
-
-@dataclass
-class Call:
-    mint: str
-    symbol: str
-    kind: str
-    t0: float
-    price0: float
-    creator: str = ""
-    peak: float = 0.0
-    last_price: float = 0.0
-    hit: list = field(default_factory=list)
-    dead: bool = False
-    closed: bool = False
-    last_seen: float = 0.0
-    liq0: float = 0.0
-    last_liq: float = 0.0
-    seen_dex: bool = False
-    missing_since: float = 0.0
-    why_dead: str = ""
+    x_url: Optional[str] = None
 
 
 def pair_snap(p: dict, t: float) -> dict:
     tx, vol, chg = p.get("txns") or {}, p.get("volume") or {}, p.get("priceChange") or {}
-    h1 = tx.get("h1") or {}
+    h1, m5 = tx.get("h1") or {}, tx.get("m5") or {}
     return {"t": t, "price": num(p.get("priceUsd")), "mcap": num(p.get("marketCap") or p.get("fdv")),
-            "liq": num((p.get("liquidity") or {}).get("usd")), "vol_h1": num(vol.get("h1")),
-            "buys_h1": h1.get("buys") or 0, "sells_h1": h1.get("sells") or 0,
+            "liq": num((p.get("liquidity") or {}).get("usd")), "vol_m5": num(vol.get("m5")), "vol_h1": num(vol.get("h1")),
+            "buys_h1": h1.get("buys") or 0, "sells_h1": h1.get("sells") or 0, "trades_m5": (m5.get("buys") or 0) + (m5.get("sells") or 0),
             "chg_m5": num(chg.get("m5")), "chg_h1": num(chg.get("h1"))}
 
 
-# ======================================================================= checks (pure functions, easy to test)
-def early_gates(l: Launch, now: float, sol_usd: float, cfg: Config, creator_launches: int, blacklisted: bool) -> list:
-    """Cheap filters from the live feed. [] = go do the on-chain checks."""
-    mc = l.mcap_sol * sol_usd
-    age = (now - l.t0) / 60
-    if age < cfg.early_min_age_min:
-        return [f"only {age:.0f}m old"]
-    if blacklisted:
-        return ["dev blacklisted"]
-    if creator_launches > cfg.max_creator_launches_24h:
-        return [f"dev launched {creator_launches} coins in 24h"]
-    fails = []
-    if not cfg.early_min_mcap <= mc <= cfg.early_max_mcap:
-        fails.append(f"MC {usd(mc)} out of range")
-    if len(l.buyers) < cfg.early_min_buyers:
-        fails.append(f"only {len(l.buyers)} buyers")
-    if l.n_buys and len(l.buyers) / l.n_buys < cfg.early_min_unique_ratio:
-        fails.append("same wallets buying over and over")
-    b, s = l.flow_5m(now)
-    if b < s * cfg.early_min_buy_sell_5m or b == 0:
-        fails.append("more selling than buying (5m)")
-    past = l.mcap_at(now - 300)
-    if not past or l.mcap_sol / past - 1 < cfg.early_min_growth_5m:
-        fails.append("not climbing (5m)")
-    if l.peak_sol and l.mcap_sol < l.peak_sol * (1 - cfg.early_max_drawdown):
-        fails.append("dumping from its peak")
-    return fails
+def pump_migrated(mint: str, dex: str) -> bool:
+    return mint.endswith("pump") and "pumpswap" in (dex or "").lower()
 
 
-def early_safety(l: Launch, chain: dict, cfg: Config) -> tuple:
-    """(all passed, check lines) from the on-chain results."""
-    mi, hs = chain.get("mint") or {}, chain.get("holders") or {}
-    supply = mi.get("supply") or PUMP_SUPPLY_RAW
-    unit = 10 ** int(mi.get("decimals") if mi.get("decimals") is not None else 6)
-    dev_pct = hs.get("dev")
-    if l.creator in l.balances:                              # dev's balance from the live feed; take the larger
-        feed_pct = l.balances[l.creator] * unit / supply * 100
-        dev_pct = feed_pct if dev_pct is None else max(dev_pct, feed_pct)
-    bundle_pct = l.bundle_tokens() * unit / supply * 100
-    t1, t10 = hs.get("top1"), hs.get("top10")
-    rows = [
-        check(mi.get("revoked") if mi else None, "Mint & freeze revoked"),
-        check((not mi.get("bad_ext")) if mi else None, "No risky token settings" + (f" ({', '.join(mi['bad_ext'])})" if mi and mi.get("bad_ext") else "")),
-        check(None if t1 is None else t1 <= cfg.early_max_top1_pct, f"Top holder {t1:.1f}%" if t1 is not None else "Top holder n/a"),
-        check(None if t10 is None else t10 <= cfg.early_max_top10_pct, f"Top 10 {t10:.1f}%" if t10 is not None else "Top 10 n/a"),
-        check(None if dev_pct is None else dev_pct <= cfg.early_max_dev_pct,
-              f"Dev holds {dev_pct:.1f}%" + (" (sold some)" if l.dev_sold else "") if dev_pct is not None else "Dev holdings n/a"),
-        check(bundle_pct <= cfg.early_max_bundle_pct, f"Early/bundle wallets {bundle_pct:.1f}%"),
-        check(True, f"Organic buyers ({len(l.buyers)} wallets)"),
-    ]
-    return all(p for p, _ in rows), [line for _, line in rows]
-
-
-def breakout_gates(p: Pair, now: float, cfg: Config) -> list:
+def breakout_trigger(p: Pair, now: float, cfg: Config) -> list:
+    """Existing breakout trigger reasons ([] = not breaking out)."""
     s = p.snap
-    if not s or not s.get("price"):
-        return ["no market data"]
-    age_min = (now * 1000 - p.created_ms) / 60000 if p.created_ms else None
     mc, liq, vol = s.get("mcap") or 0, s.get("liq") or 0, s.get("vol_h1") or 0
-    buys, sells = s.get("buys_h1") or 0, s.get("sells_h1") or 0
-    m5, h1 = s.get("chg_m5"), s.get("chg_h1")
-    fails = []
-    if age_min is None or age_min < cfg.br_min_age_min or age_min > cfg.br_max_age_h * 60:
-        fails.append("age out of window")
-    if not cfg.br_min_mcap <= mc <= cfg.br_max_mcap:
-        fails.append(f"MC {usd(mc)} out of range")
-    if liq < cfg.br_min_liq or (mc and liq / mc < cfg.br_min_liq_mcap):
-        fails.append("thin liquidity")
-    if vol < cfg.br_min_vol_h1 or (mc and vol / mc < cfg.br_min_vol_mcap):
-        fails.append("low volume")
-    if buys + sells < cfg.br_min_trades_h1:
-        fails.append("too few trades")
-    if buys < sells * cfg.br_min_buy_sell_h1:
-        fails.append("not enough buy pressure")
-    if m5 is None or h1 is None or m5 < cfg.br_min_chg_m5 or not cfg.br_min_chg_h1 <= h1 <= cfg.br_max_chg_h1:
-        fails.append("no breakout move")
-    elif m5 * 12 < h1:
-        fails.append("not accelerating")
-    if p.peak_price and s["price"] < p.peak_price * (1 - cfg.br_max_drawdown):
-        fails.append("dumping from its peak")
-    return fails
+    b, sl, m5, h1 = s.get("buys_h1") or 0, s.get("sells_h1") or 0, s.get("chg_m5"), s.get("chg_h1")
+    age_min = (now * 1000 - p.created_ms) / 60000 if p.created_ms else None
+    if not mc or age_min is None or age_min < 10 or m5 is None or h1 is None:
+        return []
+    if (liq / mc >= cfg.breakout_min_liq_mcap and vol / mc >= cfg.breakout_min_vol_mcap and b >= sl * cfg.breakout_min_buy_sell_h1
+            and m5 >= cfg.breakout_min_chg_m5 and cfg.breakout_min_chg_h1 <= h1 <= cfg.breakout_max_chg_h1 and m5 * 12 >= h1):
+        return [f"liquidity {liq / mc * 100:.0f}% of MC", f"1h volume {vol / mc:.2f}x MC", f"buys/sells {b}/{sl} in 1h",
+                f"price {m5:+.0f}% in 5m, {h1:+.0f}% in 1h (accelerating)"]
+    return []
 
 
-def pump_migrated(p: Pair) -> bool:
-    return p.mint.endswith("pump") and "pumpswap" in (p.dex or "").lower()
+def dex_observation(p: Pair, now: float, cfg: Config, blacklisted: bool, launch_info: Optional[dict]) -> dict:
+    """§5.1 hard filters + score for a coin trading in a real pool."""
+    s, rc, mi, hs = p.snap, p.rc or {}, p.chain.get("mint"), p.chain.get("holders") or {}
+    mc, liq = s.get("mcap"), s.get("liq")
+    burned = pump_migrated(p.mint, p.dex)
+    lp = 100.0 if burned else rc.get("lp_locked")
+    lp_eff = lp if lp is not None else 0.0                          # unknown lock = 0 (§5.1)
+    holders = rc.get("holders")
+    top10 = rc.get("top10") if rc.get("top10") is not None else hs.get("top10")
+    dev = rc.get("dev") if rc.get("dev") is not None else hs.get("dev")
+    insiders = rc.get("insiders")
+    li = launch_info or {}
+    bundler, sniper = li.get("bundler"), li.get("sniper")
+    revoked = mi.get("revoked") if mi else rc.get("revoked")
+    dangers = [d for d in rc.get("dangers") or [] if not (burned and "lp" in d.lower() and "unlock" in d.lower())]
+    age_s = now - p.created_ms / 1000 if p.created_ms else None
+    metrics = {"age_s": age_s, "vol_m5": s.get("vol_m5"), "vol_h1": s.get("vol_h1"), "chg_m5": s.get("chg_m5"), "chg_h1": s.get("chg_h1"),
+               "buys": s.get("buys_h1"), "sells": s.get("sells_h1"), "buyers": li.get("buyers"), "holders": holders, "top10": top10,
+               "top10_warn": top10 is not None and cfg.top10_warn_pct < top10 <= cfg.max_top10_pct, "dev": dev,
+               "insiders": insiders, "bundler": bundler, "sniper": sniper}
+    hard = []
+    if revoked is None:
+        hard.append("authority check n/a")
+    elif not revoked:
+        hard.append("mint/freeze authority on")
+    if mi and mi.get("bad_ext"):
+        hard.append("risky token settings")
+    if rc.get("rugged"):
+        hard.append("RugCheck: rugged")
+    if dangers:
+        hard.append("RugCheck danger: " + ", ".join(dangers[:2]))
+    if blacklisted:
+        hard.append("dev blacklisted (past rug)")
+    gates = []
+    if liq is None or liq < cfg.min_liquidity_usd:
+        gates.append(f"liquidity {M.usd(liq)}")
+    if lp_eff < cfg.min_lp_locked_or_burned_pct:
+        gates.append("LP lock unknown" if lp is None else f"LP locked {lp:.0f}%")
+    if top10 is None or top10 > cfg.max_top10_pct:
+        gates.append("top 10 n/a" if top10 is None else f"top 10 {top10:.0f}%")
+    if dev is not None and dev > cfg.max_dev_holdings_pct:
+        gates.append(f"dev holds {dev:.1f}%")
+    if bundler is not None and bundler > cfg.max_bundler_pct:
+        gates.append(f"bundlers {bundler:.0f}%")
+    if sniper is not None and sniper > cfg.max_sniper_pct:
+        gates.append(f"snipers {sniper:.0f}%")
+    if holders is None or holders < cfg.min_holders:
+        gates.append("holders n/a" if holders is None else f"{holders} holders")
+    checks = [line(None if not rc else (not rc.get("rugged") and not dangers), "RugCheck clean" if rc and not dangers else
+                   ("RugCheck: " + ", ".join(dangers[:2]) if dangers else "RugCheck n/a")),
+              line(revoked, "Mint & freeze revoked"),
+              line((not mi.get("bad_ext")) if mi else None, "No risky token settings"),
+              line(lp_eff >= cfg.min_lp_locked_or_burned_pct, "LP burned (pump.fun migration)" if burned else
+                   (f"LP locked {lp:.0f}%" if lp is not None else "LP lock unknown (counted as 0%)")),
+              line(None if liq is None else liq >= cfg.min_liquidity_usd, f"Liquidity {M.usd(liq)}"),
+              line(None if holders is None else holders >= cfg.min_holders, f"{holders} holders" if holders is not None else "Holders n/a"),
+              line(None if top10 is None else top10 <= cfg.max_top10_pct, f"Top 10 {pfmt(top10)}" + (" (30–40% warn)" if metrics["top10_warn"] else "")),
+              line(True if dev is None else dev <= cfg.max_dev_holdings_pct, f"Dev holds {pfmt(dev)}" if dev is not None else "Dev n/a"),
+              line(True if bundler is None else bundler <= cfg.max_bundler_pct, f"Bundlers {pfmt(bundler)}" if bundler is not None else "Bundlers n/a (score capped at 70)"),
+              line(True if sniper is None else sniper <= cfg.max_sniper_pct, f"Snipers {pfmt(sniper)}" if sniper is not None else "Snipers n/a"),
+              line(not blacklisted, "Dev not blacklisted")]
+    vol, b, sl = s.get("vol_h1") or 0, s.get("buys_h1") or 0, s.get("sells_h1") or 0
+    h1 = s.get("chg_h1")
+    score = round(wavg([(ramp((liq or 0) / mc if mc else None, 0.03, 0.20), 15), (ramp(vol / mc if mc else None, 0.1, 1.5), 15),
+                        (ramp(b / (b + sl) if b + sl else None, 0.48, 0.68), 15), (ramp(holders, 40, 800), 15),
+                        (ramp(-(top10 if top10 is not None else 60), -45, -15), 15),
+                        (None if h1 is None else (0.0 if h1 > 200 else ramp(h1, 0, 60)), 10), (ramp(s.get("chg_m5"), -5, 15), 5),
+                        (ramp(-(dev or 0) - (insiders or 0), -10, 0), 10)]))
+    trig = breakout_trigger(p, now, cfg)
+    reasons = trig or [f"liquidity {liq / mc * 100:.0f}% of MC" if (liq and mc) else None,
+                       f"1h volume {vol / mc:.2f}x MC" if mc else None, f"buys/sells {b}/{sl} in 1h",
+                       f"price {M.pct(s.get('chg_m5'))} in 5m, {M.pct(h1)} in 1h"]
+    return {"ca": p.mint, "ticker": p.symbol, "name": p.name, "source": "dex", "price": s.get("price"), "mc": mc, "liq": liq,
+            "pool": p.pair, "pool_dex": p.dex, "dev_wallet": p.creator or None, "metrics": metrics, "checks": checks,
+            "reasons": [r for r in reasons if r], "hard_fails": hard, "gate_fails": gates, "raw_score": score,
+            "bundle_known": bundler is not None and sniper is not None, "momentum": b > sl and (h1 or 0) > 0,
+            "breakout": bool(trig), "breakout_reasons": trig, "x_url": p.x_url,
+            "safety": {"fails": real_flags(hard + [g for g in gates if g.startswith(("bundlers", "snipers", "LP locked"))]),
+                       "lp": lp, "revoked": revoked}}
 
 
-def launch_rug_reason(l: Launch, cfg: Config) -> Optional[str]:
-    """Bonding-curve rug: the dev dumped their bag and the price crashed on the people who bought."""
-    if l.rugged or not l.dev_sold or l.dev_max <= 0 or not l.mc0 or not l.peak_sol:
-        return None
-    dev_left = l.balances.get(l.creator, 0.0)
-    if (dev_left <= l.dev_max * (1 - cfg.rug_dev_sold_share) and l.peak_sol >= l.mc0 * cfg.rug_min_pump
-            and l.mcap_sol <= l.peak_sol * (1 - cfg.rug_price_drop) and len(l.buyers) >= cfg.rug_min_victims):
-        return f"dev dumped, MC -{(1 - l.mcap_sol / l.peak_sol) * 100:.0f}% from peak"
-    return None
+def finalize(obs: dict, cfg: Config, catalyst_tag: str, confluence: list, existing: Optional[Record]) -> dict:
+    """Caps + boosts -> final score, then which channel it qualifies for (§5.1, §5.3, §5.4, §7, §8)."""
+    raw = obs["raw_score"]
+    parts, score = [str(raw)], raw
+    if not obs.get("bundle_known") and score > cfg.score_cap_without_bundle_data:
+        score = cfg.score_cap_without_bundle_data
+        parts = [f"{raw} capped {score} (bundler n/a)"]
+    if catalyst_tag == "REAL_CATALYST":
+        score += cfg.catalyst_boost
+        parts.append(f"+{cfg.catalyst_boost} catalyst")
+    elif catalyst_tag == "HYPE_ONLY" and cfg.hype_score_penalty:
+        score -= cfg.hype_score_penalty
+        parts.append(f"-{cfg.hype_score_penalty} hype only")
+    if confluence:
+        boost = min(cfg.confluence_boost_cap, cfg.confluence_boost_per_source * len(confluence))
+        score += boost
+        parts.append(f"+{boost} confluence")
+    score = max(0, min(100, int(round(score))))
+    obs["score"] = score
+    obs["score_parts"] = " ".join(parts) + f" = {score}" if len(parts) > 1 else None
+    obs["catalyst_tag"], obs["confluence"] = catalyst_tag, confluence
+    safe = not obs["hard_fails"]
+    clean = safe and not obs["gate_fails"]
+    if obs["source"] == "curve":
+        buyers = obs["metrics"].get("buyers") or 0
+        signals = clean and obs["momentum"] and score >= cfg.curve_signals_min_score and buyers >= cfg.curve_min_unique_buyers \
+            and (obs["metrics"].get("holders") or 0) >= cfg.min_holders
+        early = safe and obs["momentum"] and score >= cfg.early_min_score and (obs["metrics"].get("holders") or 0) >= cfg.early_min_holders
+    else:
+        signals = clean and obs["momentum"] and score >= cfg.signals_min_score and (obs["breakout"] or score >= cfg.promote_score)
+        liq, holders = obs.get("liq") or 0, obs["metrics"].get("holders") or 0
+        early = safe and obs["momentum"] and score >= cfg.early_min_score and liq >= cfg.early_min_liquidity_usd and holders >= cfg.early_min_holders
+    obs["qualifies_signals"], obs["qualifies_early"] = bool(signals), bool(early) and not signals
+    obs["qualifies_promotion"] = bool(signals) and score >= (cfg.curve_signals_min_score if obs["source"] == "curve" else cfg.promote_score)
+    return obs
 
 
-def liq_rug_reason(hist, now: float, cfg: Config) -> Optional[str]:
-    """DEX rug: the pool lost most of its liquidity in a short window."""
-    recent = [liq for t, liq in hist if t >= now - cfg.rug_liq_window_s]
-    if len(recent) < 2:
-        return None
-    top, cur = max(recent), recent[-1]
-    if top >= cfg.rug_min_liq and cur <= top * (1 - cfg.rug_liq_drop):
-        return f"liquidity drained ({usd(top)} -> {usd(cur)}) in {cfg.rug_liq_window_s / 60:.0f}m"
-    return None
-
-
-def breakout_safety(p: Pair, chain: dict, cfg: Config, blacklisted: bool) -> tuple:
-    rc, mi = chain.get("rc"), chain.get("mint")
-    dangers = [d for d in (rc or {}).get("dangers", []) if not (pump_migrated(p) and "lp" in d.lower() and "unlock" in d.lower())]
-    lp = (rc or {}).get("lp_locked")
-    lp_ok = True if pump_migrated(p) else (None if lp is None else lp >= cfg.br_min_lp_locked)
-    revoked = mi.get("revoked") if mi else (rc or {}).get("revoked")
-    hold = (rc or {}).get("holders")
-    t1, t10 = (rc or {}).get("top1"), (rc or {}).get("top10")
-    hs = chain.get("holders") or {}
-    t1 = t1 if t1 is not None else hs.get("top1")
-    t10 = t10 if t10 is not None else hs.get("top10")
-    ins, dev = (rc or {}).get("insiders"), (rc or {}).get("dev")
-    rows = [
-        check(None if rc is None else (not rc["rugged"] and not dangers), "RugCheck clean" if rc and not dangers else
-              ("RugCheck: " + ", ".join(dangers[:2]) if dangers else "RugCheck n/a")),
-        check(revoked, "Mint & freeze revoked"),
-        check((not mi.get("bad_ext")) if mi else None, "No risky token settings"),
-        check(lp_ok, "LP burned (pump.fun migration)" if pump_migrated(p) else (f"LP locked {lp:.0f}%" if lp is not None else "LP lock n/a")),
-        check(None if hold is None else hold >= cfg.br_min_holders, f"{hold:,} holders" if hold is not None else "Holders n/a"),
-        check(None if t1 is None else t1 <= cfg.br_max_top1_pct, f"Top holder {t1:.1f}%" if t1 is not None else "Top holder n/a"),
-        check(None if t10 is None else t10 <= cfg.br_max_top10_pct, f"Top 10 {t10:.1f}%" if t10 is not None else "Top 10 n/a"),
-        check(True if ins is None else ins <= cfg.br_max_insider_pct, f"Insiders {ins:.1f}%" if ins is not None else "Insiders none flagged"),
-        check(True if dev is None else dev <= cfg.br_max_dev_pct, f"Dev holds {dev:.1f}%" if dev is not None else "Dev wallet not in top holders"),
-        check(not blacklisted, "Dev not blacklisted"),
-    ]
-    return all(ok for ok, _ in rows), [line for _, line in rows]
-
-
-def deep_early(l_mint: str, curve: str, creator: str) -> dict:
-    mi = mint_info(l_mint)
+# ======================================================================= deep checks (worker threads)
+def deep_curve(mint, curve, creator) -> dict:
+    mi = mint_info(mint)
     supply = (mi or {}).get("supply") or PUMP_SUPPLY_RAW
-    return {"mint": mi, "curve": curve_state(curve),
-            "holders": holder_stats(largest_holders(l_mint, exclude_owners=[curve]), supply, creator)}
+    return {"mint": mi, "curve": curve_state(curve), "holders": holder_stats(largest_holders(mint, exclude_owners=[curve]), supply, creator)}
 
 
-def deep_breakout(mint: str, pair_addr: str, cached_rc: Optional[dict] = None) -> dict:
+def deep_dex(mint, pair_addr, cached_rc, creator) -> dict:
     out = {"mint": mint_info(mint), "rc": cached_rc or fetch_rugcheck(mint), "rc_fresh": cached_rc is None}
     if not out["rc"] or out["rc"].get("top10") is None:
         supply = (out["mint"] or {}).get("supply")
         if supply:
-            out["holders"] = holder_stats(largest_holders(mint, exclude_owners=[pair_addr]), supply)
+            out["holders"] = holder_stats(largest_holders(mint, exclude_owners=[pair_addr]), supply, creator or None)
     return out
 
 
-# ======================================================================= embeds
-FOOTER = {"text": f"{VERSION} · rug checks passed ≠ guaranteed safe · not financial advice"}
-
-
-def links(mint: str, axiom_key: str, pump: bool) -> str:
-    out = []
-    if pump:
-        out.append(f"[pump.fun](https://pump.fun/coin/{mint})")
-    out += [f"[DEX](https://dexscreener.com/solana/{mint})"]
-    if axiom_key:
-        out.append(f"[Axiom](https://axiom.trade/meme/{axiom_key})")
-    out += [f"[RugCheck](https://rugcheck.xyz/tokens/{mint})", f"[Solscan](https://solscan.io/token/{mint})",
-            f"[X search](https://x.com/search?q={mint})"]
-    return " · ".join(out)
-
-
-def early_embed(l: Launch, chain: dict, rows: list, now: float, sol_usd: float) -> dict:
-    cs = chain.get("curve") or {}
-    mc = l.mcap_sol * sol_usd
-    b, s = l.flow_5m(now)
-    past = l.mcap_at(now - 300)
-    growth = (l.mcap_sol / past - 1) * 100 if past else None
-    market = f"MC **{usd(mc)}**"
-    if cs:
-        market += f" · Curve **{cs['progress'] * 100:.0f}%** · Reserve **{cs['reserve_sol']:.1f} SOL**"
-    flow = (f"Age **{ago(now - l.t0)}** · Buyers **{len(l.buyers)}** · Buys/Sells **{l.n_buys}/{l.n_sells}**\n"
-            f"MC **{sign_pct(growth)}** in 5m · 5m flow **{b:.1f}** SOL in / **{s:.1f}** out")
-    return {"title": f"🔎 EARLY WATCH — {l.symbol}"[:256], "color": 0x3BA55D,
-            "description": f"**{l.name}** · pump.fun, before migration\n✅ **Passed every rug check**",
-            "fields": [{"name": "Market", "value": market, "inline": False},
-                       {"name": "Flow", "value": flow, "inline": False},
-                       {"name": "Rug checks", "value": "\n".join(rows), "inline": False},
-                       {"name": "Links", "value": links(l.mint, l.curve, True), "inline": False},
-                       {"name": "CA", "value": f"```{l.mint}```", "inline": False}],
-            "footer": FOOTER}
-
-
-def breakout_embed(p: Pair, rows: list, now: float) -> dict:
-    s = p.snap
-    mc, liq, vol = s.get("mcap") or 0, s.get("liq") or 0, s.get("vol_h1") or 0
-    age = now - p.created_ms / 1000 if p.created_ms else None
-    why = [f"liquidity {liq / mc * 100:.0f}% of MC" if mc else None, f"1h volume {vol / mc:.2f}x MC" if mc else None,
-           f"buys/sells {s['buys_h1']}/{s['sells_h1']} in 1h", f"price {sign_pct(s.get('chg_m5'))} in 5m, {sign_pct(s.get('chg_h1'))} in 1h"]
-    return {"title": f"🔥 BREAKOUT — {p.symbol}"[:256], "color": 0xF0A020,
-            "description": f"**{p.name or p.symbol}** · {p.dex or 'dex'}\n✅ **Passed every rug check**",
-            "fields": [{"name": "Market", "value": f"MC **{usd(mc)}** · Liq **{usd(liq)}** · Vol 1h **{usd(vol)}**", "inline": False},
-                       {"name": "Flow", "value": f"Age **{ago(age) if age is not None else 'n/a'}** · Trades 1h **{s['buys_h1'] + s['sells_h1']}**", "inline": False},
-                       {"name": "Why it fired", "value": "\n".join(f"• {w}" for w in why if w), "inline": False},
-                       {"name": "Rug checks", "value": "\n".join(rows), "inline": False},
-                       {"name": "Links", "value": links(p.mint, p.pair, p.mint.endswith("pump")), "inline": False},
-                       {"name": "CA", "value": f"```{p.mint}```", "inline": False}],
-            "footer": FOOTER}
-
-
-def milestone_embed(c: Call, x: int, now: float) -> dict:
-    return {"title": f"🚀 {c.symbol} hit {x}x", "color": 0x57F287,
-            "description": f"{'Early watch' if c.kind == 'early' else 'Breakout'} called {ago(now - c.t0)} ago · peak **{c.peak / c.price0:.1f}x**\n```{c.mint}```"}
-
-
-def dead_embed(c: Call) -> dict:
-    why = c.why_dead or f"down to {c.last_price / c.price0:.2f}x of the alert price"
-    return {"title": f"☠️ {c.symbol} died", "color": 0xED4245,
-            "description": f"{why[0].upper() + why[1:]} (peak {c.peak / c.price0:.1f}x)."
-                           + (" Dev blacklisted." if c.creator else "")}
+def safety_recheck(rec_ca, dev, full, is_dex) -> dict:
+    out = {}
+    if dev:
+        out["dev_balance"] = token_balance(dev, rec_ca)
+    if full:
+        out["mint"] = mint_info(rec_ca)
+        if is_dex:
+            out["rc"] = fetch_rugcheck(rec_ca)
+    return out
 
 
 # ======================================================================= bot
 class Bot:
-    def __init__(self, cfg: Config, feed: Optional[PumpFeed] = None, clock=time.time):
-        self.cfg, self.clock = cfg, clock
-        self.feed = feed
+    def __init__(self, cfg: Config, poster: Poster, feed: Optional[PumpFeed] = None, clock=time.time):
+        self.cfg, self.clock, self.poster, self.feed = cfg, clock, poster, feed
+        self.store = Store(cfg.state_file, cfg.backup_dir, cfg.backup_keep_days, clock=clock)
+        self.store.load()
+        self.lc = Lifecycle(self.store, cfg, poster, clock=clock, on_end=self.on_end)
         self.launches: dict = {}
         self.pairs: dict = {}
-        self.calls: dict = {}
-        self.creator_times = defaultdict(deque)
-        self.blacklist: dict = {}             # dev wallet -> [time, reason]
-        self.mint_creator: dict = {}          # mint -> (dev wallet, launch time), last 24h of launches
-        self.seen: dict = {}                 # mint -> skip pair discovery until
-        self.pending: dict = {}              # mint -> (kind, future)
-        self.pool = ThreadPoolExecutor(max_workers=4)
-        self.alert_times = deque()
-        self.last_alert = self.last_quiet = clock()
+        self.launch_info: dict = {}          # mint -> {bundler, sniper, buyers, creator, t} (snapshot from the feed)
+        self.mint_creator: dict = {}         # mint -> (dev, t)
+        self.seen: dict = {}
+        self.pending: dict = {}
+        self.trending: dict = {}             # mint -> last time seen in GeckoTerminal trending (public confluence)
+        self.pool = ThreadPoolExecutor(max_workers=5)
         self.sol_usd, self.sol_t = None, 0.0
-        self.blocks = Counter()
-        self.quiet_blocks = Counter()
-        self.counts = Counter()
         self.timers = defaultdict(float)
-        self.started = clock()
+        self.blocks, self.counts = Counter(), Counter()
         self.status_lines = deque(maxlen=60)
-        self.load_state()
+        self.started = clock()
+        self.last_tick = clock()
+        self.last_poll_ok = self.store.meta.get("last_poll_ok")
+        self.gap_warned = False
+        self.flap_warned_at = 0.0
+        self.creator_times = defaultdict(deque, {k: deque(v) for k, v in self.store.creator_times.items()})
+        for r in self.store.records.values():                # resume UPDATE/BREAKOUT checks for live coins after a restart
+            if r.status == "active" and (r.source == "dex" or r.migrated_at):
+                self.add_pair(r.ca, clock(), force=True)
+                self.pairs[r.ca].creator = r.dev_wallet or ""
 
-    # ---------------- persistence
-    def load_state(self):
-        try:
-            with open(self.cfg.state_file) as f:
-                st = json.load(f)
-        except Exception:
-            return
-        if not isinstance(st, dict) or st.get("version", "").split("-")[0] != VERSION.split("-")[0]:
-            return                                          # old bot's state: start clean
-        bl = st.get("blacklist") or {}
-        self.blacklist = {k: [time.time(), "old"] for k in bl} if isinstance(bl, list) else dict(bl)
-        for creator, times in (st.get("creator_times") or {}).items():
-            self.creator_times[creator] = deque(times)
-        for d in st.get("calls") or []:
-            try:
-                c = Call(**d)
-                self.calls[c.mint] = c
-            except TypeError:
-                pass
-        self.last_alert = st.get("last_alert") or self.last_alert
-        self.last_quiet = st.get("last_quiet") or self.last_quiet
-
-    def save_state(self):
-        keep = self.clock() - self.cfg.calls_keep_days * 86400
-        now = self.clock()
-        cut = now - self.cfg.blacklist_days * 86400
-        bl = sorted(((k, v) for k, v in self.blacklist.items() if v[0] >= cut), key=lambda kv: kv[1][0])
-        self.blacklist = dict(bl[-self.cfg.blacklist_max:])
-        repeat = {}
-        for c in list(self.creator_times):
-            n = self.creator_launches(c, now)
-            if n >= 2:
-                repeat[c] = list(self.creator_times[c])
-            elif n == 0:
-                del self.creator_times[c]
-        st = {"version": VERSION, "saved": now_iso(), "blacklist": self.blacklist, "creator_times": repeat,
-              "calls": [asdict(c) for c in self.calls.values() if c.t0 >= keep],
-              "last_alert": self.last_alert, "last_quiet": self.last_quiet}
-        tmp = self.cfg.state_file + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(st, f, indent=1)
-        os.replace(tmp, self.cfg.state_file)
-
-    def log(self, event, symbol, mint, price, detail=""):
-        new = not os.path.exists(self.cfg.log_file)
-        with open(self.cfg.log_file, "a", newline="") as f:
-            w = csv.writer(f)
-            if new:
-                w.writerow(["time", "event", "symbol", "mint", "price", "detail"])
-            w.writerow([time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()), event, symbol, mint, f"{price:.4g}" if price else "", detail])
-
-    def jlog(self, rec: dict):
-        with open(self.cfg.signals_file, "a") as f:
-            f.write(json.dumps(rec, default=str) + "\n")
-
-    # ---------------- helpers
+    # ---------------- utils
     def every(self, key, seconds, now) -> bool:
         if now - self.timers[key] >= seconds:
             self.timers[key] = now
             return True
         return False
+
+    def submit(self, key, kind, fn, *args):
+        self.pending[key] = (kind, self.pool.submit(fn, *args))
+
+    def log(self, event, symbol, mint, detail=""):
+        new = not os.path.exists(self.cfg.log_file)
+        with open(self.cfg.log_file, "a", newline="") as f:
+            w = csv.writer(f)
+            if new:
+                w.writerow(["time", "event", "symbol", "mint", "price", "detail"])
+            w.writerow([time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()), event, symbol, mint, "", detail])
+
+    def jlog(self, rec: dict):
+        with open(self.cfg.signals_file, "a") as f:
+            f.write(json.dumps(rec, default=str) + "\n")
+
+    def block(self, reason):
+        self.blocks[re.sub(r"\$?\d[\d.,]*[KMB%]?", "N", reason)[:48]] += 1
 
     def creator_launches(self, creator, now) -> int:
         dq = self.creator_times.get(creator)
@@ -1032,26 +579,33 @@ class Bot:
             dq.popleft()
         return len(dq)
 
-    def alerts_last_hour(self, now) -> int:
-        while self.alert_times and self.alert_times[0] < now - 3600:
-            self.alert_times.popleft()
-        return len(self.alert_times)
+    def blacklisted(self, dev) -> bool:
+        return bool(dev) and dev in self.store.blacklist
 
-    def blacklist_dev(self, creator: str, reason: str, mint: str, symbol: str):
-        if not creator or creator in self.blacklist:
+    def blacklist_dev(self, dev, reason, mint, symbol):
+        if not dev or dev in self.store.blacklist:
             return
-        self.blacklist[creator] = [self.clock(), f"{symbol}: {reason}"[:80]]
+        self.store.blacklist[dev] = [self.clock(), f"{symbol}: {reason}"[:80]]
         self.counts["blacklisted"] += 1
-        self.log("BLACKLIST", symbol, mint, None, f"{creator} | {reason}")
-        print(f"[blacklist] {creator[:8]}… {symbol} {reason}")
+        self.log("BLACKLIST", symbol, mint, f"{dev} | {reason}")
+        # any live signal from this dev is now invalid
+        for rec in list(self.store.records.values()):
+            if rec.dev_wallet == dev and not rec.ended and rec.status == "active" and rec.ca != mint:
+                self.lc.invalidate(rec.ca, "dev_blacklisted", f"Dev rugged {symbol} ({reason}).")
 
-    def creator_of(self, mint: str) -> str:
-        return (self.mint_creator.get(mint) or ("", 0))[0]
+    def on_end(self, rec: Record, reason: str, detail: str):
+        self.log(f"{'INVALIDATED' if rec.status == 'invalidated' else 'DEAD'}", rec.ticker, rec.ca, f"{reason} {detail}".strip())
+        self.jlog({"type": "outcome", "t": self.clock(), "ca": rec.ca, "ticker": rec.ticker, "official": rec.official,
+                   "reason": reason, "peak_x": rec.peak_multiple})
+        if reason in ("dev_sold", "liquidity_pulled", "safety_fail") and rec.dev_wallet:
+            self.blacklist_dev(rec.dev_wallet, DEATH_TEXT.get(reason, reason), rec.ca, rec.ticker)
+        if self.feed and rec.ca in self.launches:
+            self.feed.unwatch([rec.ca])
 
-    def submit(self, mint, kind, fn, *args):
-        self.pending[mint] = (kind, self.pool.submit(fn, *args))
+    def to_bot(self, text: str, title: str = "Spidey Bot"):
+        self.poster.send("bot", {"title": title, "description": text[:4000], "color": 0x747F8D})
 
-    # ---------------- feed
+    # ---------------- feed (curve coins)
     def on_feed(self, events):
         subs, unsubs = [], []
         for t, kind, mint, m in events:
@@ -1070,57 +624,79 @@ class Bot:
                 init = num(m.get("initialBuy")) or 0.0
                 if creator and init > 0:
                     l.balances[creator] = l.dev_max = init
-                    l.early[creator] = init
                 self.launches[mint] = l
                 self.counts["launches"] += 1
                 subs.append(mint)
             elif kind == "trade":
                 l = self.launches.get(mint)
-                if l:
-                    l.on_trade(t, m)
+                if not l:
+                    continue
+                sold = l.on_trade(t, m)
+                rec = self.store.get(mint)
+                if sold and rec and not rec.ended and rec.status == "active" and self.cfg.dev_sell_invalidates:
+                    pct = sold / 1e9 * 100
+                    if pct >= self.cfg.dev_sell_dust_pct:
+                        self.lc.invalidate(mint, "dev_sold", f"Dev wallet sold {pct:.2f}% of supply on the curve.")
             elif kind == "migration":
                 self.counts["migrations"] += 1
-                if self.launches.pop(mint, None):
+                l = self.launches.pop(mint, None)
+                if l:
+                    self.snapshot_launch(l, t)
                     unsubs.append(mint)
                 self.add_pair(mint, t, force=True)
         if self.feed:
             self.feed.watch(subs)
             self.feed.unwatch(unsubs)
 
-    def prune_launches(self, now):
+    def snapshot_launch(self, l: Launch, t: float):
+        self.launch_info[l.mint] = {"bundler": l.group_pct(0, self.cfg.bundle_window_s),
+                                    "sniper": l.group_pct(self.cfg.bundle_window_s + 1e-9, self.cfg.sniper_window_s),
+                                    "buyers": len(l.buyers), "creator": l.creator, "t": t}
+
+    def prune(self, now):
         for mint, l in self.launches.items():
             why = launch_rug_reason(l, self.cfg)
             if why:
                 l.rugged = True
                 self.blacklist_dev(l.creator, why, mint, l.symbol)
-                c = self.calls.get(mint)
-                if c and not c.closed:
-                    self.kill_call(c, why)
-        if len(self.mint_creator) > 80_000 or self.every("mc_prune", 600, now):
+        if self.every("prune_maps", 600, now):
             self.mint_creator = {m: v for m, v in self.mint_creator.items() if v[1] >= now - 86400}
+            self.launch_info = {m: v for m, v in self.launch_info.items() if v["t"] >= now - 86400}
+            self.trending = {m: t for m, t in self.trending.items() if t >= now - 86400}
+            self.seen = {m: t for m, t in self.seen.items() if t > now}
         drop = []
         for mint, l in self.launches.items():
+            rec = self.store.get(mint)
+            if (rec and rec.status == "active") or mint in self.pending:
+                continue                                              # keep watching trades of live signals (dev sells)
             age = (now - l.t0) / 60
             mc = l.mcap_sol * (self.sol_usd or 0)
-            if mint in self.calls or mint in self.pending:
-                continue
-            if (age > self.cfg.early_max_age_min or now - l.last_trade > 600
-                    or (age > self.cfg.early_drop_after_min and (len(l.buyers) < 8 or (self.sol_usd and mc < 5_000)))):
+            if (age > self.cfg.curve_max_age_min or now - l.last_trade > 600
+                    or (age > 5 and (len(l.buyers) < 8 or (self.sol_usd and mc < 5_000)))):
                 drop.append(mint)
         for m in drop:
-            del self.launches[m]
+            l = self.launches.pop(m)
+            if len(l.buyers) >= 20:
+                self.snapshot_launch(l, now)
         if self.feed and drop:
             self.feed.unwatch(drop)
 
-    # ---------------- discovery of DEX pairs
+    # ---------------- DEX pairs
     def add_pair(self, mint, now, force=False):
-        if mint in STABLES or mint in self.pairs or mint in self.calls:
+        if mint in STABLES or mint in self.pairs:
+            return
+        rec = self.store.get(mint)
+        if rec and (rec.ended or rec.status == "archived"):
             return
         if not force and self.seen.get(mint, 0) > now:
             return
         if len(self.pairs) >= self.cfg.max_pairs:
             return
-        self.pairs[mint] = Pair(mint=mint, added=now, next_refresh=now)
+        self.pairs[mint] = Pair(mint=mint, next_refresh=now, creator=(self.mint_creator.get(mint) or ("", 0))[0])
+
+    def drop_pair(self, mint, now, ttl):
+        self.pairs.pop(mint, None)
+        self.seen[mint] = now + ttl
 
     def discover(self, now):
         if self.every("gecko_new", 30, now):
@@ -1128,6 +704,7 @@ class Bot:
                 self.add_pair(m, now)
         if self.every("gecko_trend", 120, now):
             for m in fetch_gecko_mints("trending_pools"):
+                self.trending[m] = now
                 self.add_pair(m, now)
         if self.every("dex_profiles", 30, now):
             for m in fetch_dex_feed("/token-profiles/latest/v1"):
@@ -1137,267 +714,383 @@ class Bot:
                 self.add_pair(m, now)
 
     def refresh_pairs(self, now):
-        due = [p for p in self.pairs.values() if p.next_refresh <= now]
-        due.sort(key=lambda p: p.next_refresh)
-        for i in range(0, min(len(due), 120), 30):
+        due = sorted((p for p in self.pairs.values() if p.next_refresh <= now), key=lambda p: p.next_refresh)[:120]
+        for i in range(0, len(due), 30):
             batch = due[i:i + 30]
-            res = fetch_dex_pairs([p.mint for p in batch])
+            res = fetch_dex_all_pairs([p.mint for p in batch])
             if res is None:
                 return
+            self.poll_ok(now)
             for p in batch:
                 p.next_refresh = now + self.cfg.pair_refresh_s
-                d = res.get(p.mint)
-                if not d:
+                pairs = res.get(p.mint) or []
+                real = [d for d in pairs if (d.get("dexId") or "").lower() != "pumpfun"]
+                if not pairs:
                     p.misses += 1
                     if p.misses >= 4:
                         self.drop_pair(p.mint, now, 1800)
                     continue
-                p.misses = 0
-                if (d.get("dexId") or "").lower() == "pumpfun":        # still on the curve: early lane's job
-                    self.drop_pair(p.mint, now, 1800)
+                if not real:                                          # still on the curve: feed lane's job
+                    self.drop_pair(p.mint, now, 900)
                     continue
+                d = next((x for x in real if x.get("pairAddress") == p.pair), None) or \
+                    max(real, key=lambda x: num((x.get("liquidity") or {}).get("usd")) or 0)
+                p.misses = 0
                 p.symbol = (d.get("baseToken") or {}).get("symbol") or p.symbol
                 p.name = (d.get("baseToken") or {}).get("name") or p.name
-                p.pair, p.dex, p.url = d.get("pairAddress") or p.pair, d.get("dexId") or p.dex, d.get("url") or p.url
+                p.pair, p.dex = d.get("pairAddress") or p.pair, d.get("dexId") or p.dex
                 p.created_ms = num(d.get("pairCreatedAt")) or p.created_ms
+                socials = ((d.get("info") or {}).get("socials") or [])
+                p.x_url = next((s.get("url") for s in socials if s.get("type") == "twitter"), p.x_url)
                 p.snap = pair_snap(d, now)
                 p.liq_hist.append((now, p.snap.get("liq") or 0.0))
-                why = None if p.rugged else liq_rug_reason(p.liq_hist, now, self.cfg)
-                if why:
-                    p.rugged = True
-                    self.pair_rugged(p, why, now)
-                    continue
-                price = p.snap.get("price") or 0
-                p.peak_price = max(p.peak_price, price)
+                rec = self.store.get(p.mint)
+                if not rec and not p.rugged:
+                    why = self.liq_rug(p, now)
+                    if why:
+                        p.rugged = True
+                        self.pair_rugged(p, why, now)
+                        continue
+                p.peak_price = max(p.peak_price, p.snap.get("price") or 0)
                 age_h = (now * 1000 - p.created_ms) / 3.6e6 if p.created_ms else 0
-                if age_h > self.cfg.br_max_age_h or (p.snap.get("liq") or 0) < 3_000 or (p.snap.get("mcap") or 0) > self.cfg.br_max_mcap * 3:
+                if not rec and (age_h > self.cfg.max_pair_age_h or (p.snap.get("liq") or 0) < 1_000
+                                or (p.snap.get("mcap") or 0) > self.cfg.max_mcap_usd):
                     self.drop_pair(p.mint, now, 6 * 3600)
 
-    def pair_rugged(self, p: Pair, why: str, now: float):
-        creator = p.creator or (p.rc or {}).get("creator") or self.creator_of(p.mint)
-        if creator:
-            self.blacklist_dev(creator, why, p.mint, p.symbol)
-            self.drop_pair(p.mint, now, 86400)
-        elif p.mint not in self.pending:                  # dev unknown: ask RugCheck who made it
-            self.submit(p.mint, "rugdev", fetch_rugcheck, p.mint)
-            p.blocked = why
+    def liq_rug(self, p: Pair, now) -> Optional[str]:
+        recent = [liq for t, liq in p.liq_hist if t >= now - self.cfg.rug_liq_window_s]
+        if len(recent) >= 2 and max(recent) >= self.cfg.rug_min_liq and recent[-1] <= max(recent) * (1 - self.cfg.rug_liq_drop):
+            return f"liquidity drained ({M.usd(max(recent))} -> {M.usd(recent[-1])})"
+        return None
 
-    def drop_pair(self, mint, now, ttl):
-        self.pairs.pop(mint, None)
-        self.seen[mint] = now + ttl
+    def pair_rugged(self, p: Pair, why, now):
+        dev = p.creator or (p.rc or {}).get("creator")
+        if dev:
+            self.blacklist_dev(dev, why, p.mint, p.symbol)
+            self.drop_pair(p.mint, now, 86400)
+        elif p.mint not in self.pending:
+            self.submit(p.mint, "rugdev", fetch_rugcheck, p.mint)
 
     # ---------------- evaluation
+    def catalyst_for(self, rec: Optional[Record]) -> str:
+        return rec.catalyst_tag if rec else "UNCHECKED"
+
+    def confluence_for(self, ca, now, rec: Optional[Record]) -> list:
+        t = self.trending.get(ca)
+        start = (rec.first_alert_at or rec.early_alert_at) if rec else now
+        if t and t >= (start or now) - self.cfg.confluence_lookback_hours * 3600:
+            return ["GeckoTerminal trending"]
+        return list(rec.confluence) if rec else []
+
     def evaluate(self, now):
         sol = self.sol_usd
         if sol:
             for l in list(self.launches.values()):
-                if l.mint in self.calls or l.mint in self.pending or now - l.last_eval < 20:
+                if l.mint in self.pending or now - l.last_eval < 20:
+                    continue
+                rec = self.store.get(l.mint)
+                if rec and (rec.ended or rec.status == "archived"):
                     continue
                 l.last_eval = now
-                fails = early_gates(l, now, sol, self.cfg, self.creator_launches(l.creator, now), l.creator in self.blacklist)
-                if fails:
-                    l.blocked = fails[0]
-                    if "old" not in fails[0]:
-                        self.block(fails[0])
+                age = (now - l.t0) / 60
+                mc = l.mcap_sol * sol
+                if age < self.cfg.curve_min_age_min or not (self.cfg.curve_min_mcap <= mc <= self.cfg.curve_max_mcap * 1.5):
                     continue
-                if not l.curve or now - l.last_deep < self.cfg.recheck_s:
+                if len(l.buyers) < 15 and not rec:
                     continue
-                l.last_deep = now
-                self.submit(l.mint, "early", deep_early, l.mint, l.curve, l.creator)
+                if l.curve and now - l.chain_t >= (self.cfg.safety_recheck_s if rec else 60):
+                    l.chain_t = now
+                    self.submit(l.mint, "curve", deep_curve, l.mint, l.curve, l.creator)
+                    continue
+                if l.chain:
+                    self.consider_curve(l, now)
         for p in list(self.pairs.values()):
-            if p.mint in self.calls or p.mint in self.pending or now - p.last_eval < self.cfg.recheck_s:
+            if p.mint in self.pending or not p.snap or now - p.last_eval < 60:
                 continue
-            fails = breakout_gates(p, now, self.cfg)
-            if fails:
-                p.blocked = fails[0]
+            rec = self.store.get(p.mint)
+            if rec and (rec.ended or rec.status == "archived"):
+                self.pairs.pop(p.mint, None)
                 continue
             p.last_eval = now
-            cached = p.rc if (p.rc is not None and now - p.rc_t <= self.cfg.rugcheck_ttl_s) else None
-            self.submit(p.mint, "breakout", deep_breakout, p.mint, p.pair, cached)
+            s = p.snap
+            cheap_ok = (s.get("liq") or 0) >= self.cfg.early_min_liquidity_usd and (s.get("buys_h1") or 0) > (s.get("sells_h1") or 0) \
+                and (s.get("chg_h1") or 0) > 0 and (s.get("vol_h1") or 0) >= 5_000
+            if not cheap_ok and not rec:
+                continue
+            fresh_rc = p.rc if (p.rc is not None and now - p.rc_t <= 180) else None
+            if fresh_rc is None or now - p.chain_t > 180:
+                p.chain_t = now
+                self.submit(p.mint, "dex", deep_dex, p.mint, p.pair, fresh_rc, p.creator)
+                continue
+            self.consider_dex(p, now)
+
+    def consider_curve(self, l: Launch, now):
+        rec = self.store.get(l.mint)
+        obs = curve_observation(l, now, self.sol_usd, self.cfg, self.blacklisted(l.creator), self.creator_launches(l.creator, now))
+        self.decide(obs, rec, now)
+
+    def consider_dex(self, p: Pair, now):
+        rec = self.store.get(p.mint)
+        if not p.creator:
+            p.creator = (p.rc or {}).get("creator") or (self.mint_creator.get(p.mint) or ("", 0))[0]
+        obs = dex_observation(p, now, self.cfg, self.blacklisted(p.creator), self.launch_info.get(p.mint))
+        self.decide(obs, rec, now)
+
+    def decide(self, obs, rec, now):
+        obs = finalize(obs, self.cfg, self.catalyst_for(rec), self.confluence_for(obs["ca"], now, rec), rec)
+        if rec is None and (obs["qualifies_signals"] or obs["qualifies_early"]) and obs["ca"] not in self.pending:
+            # first sighting worth posting: do the catalyst search first (fail-soft: UNCHECKED if it errors)
+            self.submit(obs["ca"], "catalyst_new", lambda o=obs: (o, check_catalyst(o.get("name") or "", o.get("ticker") or "")))
+            return
+        if rec is None:
+            if obs["hard_fails"]:
+                self.block(obs["hard_fails"][0])
+            elif obs["gate_fails"]:
+                self.block(obs["gate_fails"][0])
+            return
+        self.post_obs(obs, rec, now)
+
+    def post_obs(self, obs, rec, now):
+        typ = self.lc.on_candidate(obs)
+        if typ:
+            self.log(typ, obs["ticker"], obs["ca"], f"score {obs['score']}")
+            self.jlog({"type": typ, "t": now, "ca": obs["ca"], "ticker": obs["ticker"], "score": obs["score"],
+                       "official": bool(self.store.get(obs["ca"]) and self.store.get(obs["ca"]).official),
+                       "mc": obs.get("mc"), "liq": obs.get("liq"), "checks": obs.get("checks")})
+            rec = self.store.get(obs["ca"])
+            if typ in ("UPDATE", "BREAKOUT") and rec and not rec.catalyst_rerun_done and rec.catalyst_tag != "REAL_CATALYST":
+                rec.catalyst_rerun_done = True
+                self.submit(f"cat:{rec.ca}", "catalyst", lambda o=obs: (o, check_catalyst(o.get("name") or "", o.get("ticker") or "")))
 
     def collect(self, now):
-        for mint, (kind, fut) in list(self.pending.items()):
+        for key, (kind, fut) in list(self.pending.items()):
             if not fut.done():
                 continue
-            del self.pending[mint]
+            del self.pending[key]
             try:
-                chain = fut.result()
+                res = fut.result()
             except Exception as e:
-                print(f"[warn] check failed for {mint}: {e}")
+                print(f"[warn] {kind} job failed for {key}: {e}")
                 continue
-            if kind == "rugdev":
-                p = self.pairs.get(mint)
-                creator = (chain or {}).get("creator")
-                if p and creator:
-                    self.blacklist_dev(creator, p.blocked or "rugged", mint, p.symbol)
-                self.drop_pair(mint, now, 86400)
-                continue
-            if kind == "early":
-                l = self.launches.get(mint)
-                if not l or not self.sol_usd:
-                    continue
-                if (chain.get("curve") or {}).get("complete"):
-                    continue
-                ok, rows = early_safety(l, chain, self.cfg)
-                if ok:
-                    self.alert_early(l, chain, rows, now)
-                else:
-                    self.block_from_rows(rows)
-            else:
-                p = self.pairs.get(mint)
+            if kind == "curve":
+                l = self.launches.get(key)
+                if l:
+                    l.chain = res
+                    if not (res.get("curve") or {}).get("complete"):
+                        self.consider_curve(l, now)
+            elif kind == "dex":
+                p = self.pairs.get(key)
                 if not p:
                     continue
-                if chain.get("rc_fresh") and chain.get("rc") is not None:
-                    p.rc, p.rc_t = chain["rc"], now
-                creator = (p.rc or {}).get("creator") or self.creator_of(mint)
-                p.creator = creator or p.creator
+                p.chain = res
+                if res.get("rc_fresh") and res.get("rc") is not None:
+                    p.rc, p.rc_t = res["rc"], now
                 if (p.rc or {}).get("rugged"):
-                    self.blacklist_dev(creator, "RugCheck: rugged", mint, p.symbol)
-                ok, rows = breakout_safety(p, chain, self.cfg, bool(creator and creator in self.blacklist))
-                if ok and not breakout_gates(p, now, self.cfg):
-                    self.alert_breakout(p, rows, now)
-                elif not ok:
-                    self.block_from_rows(rows)
-                    if (p.rc or {}).get("rugged") or (chain.get("mint") or {}).get("revoked") is False:
-                        self.drop_pair(mint, now, 86400)
+                    self.blacklist_dev(p.creator or p.rc.get("creator"), "RugCheck: rugged", p.mint, p.symbol)
+                self.consider_dex(p, now)
+            elif kind == "rugdev":
+                p = self.pairs.get(key)
+                if p and res and res.get("creator"):
+                    self.blacklist_dev(res["creator"], "liquidity drained", key, p.symbol)
+                self.drop_pair(key, now, 86400)
+            elif kind == "catalyst_new":
+                obs, (tag, url, summ) = res
+                rec = self.store.get(obs["ca"])
+                obs = finalize(obs, self.cfg, tag or "UNCHECKED", obs.get("confluence") or [], rec)
+                obs["catalyst_url"], obs["catalyst_summary"] = url, summ
+                if rec is None and not (obs["qualifies_signals"] or obs["qualifies_early"]):
+                    continue
+                self.post_obs(obs, rec, now)
+            elif kind == "catalyst":
+                obs, (tag, url, summ) = res
+                obs["catalyst_tag"] = tag or obs.get("catalyst_tag")
+                if self.lc.on_catalyst(obs["ca"], tag, url, summ, obs):
+                    self.log("UPDATE", obs["ticker"], obs["ca"], f"catalyst {tag}")
+            elif kind == "safety":
+                self.apply_safety(key.split(":", 1)[1], res, now)
 
-    def block(self, reason: str):
-        key = re.sub(r"\$?\d[\d.,]*[KMB%]?", "N", reason)[:48]
-        self.blocks[key] += 1
-        self.quiet_blocks[key] += 1
-
-    def block_from_rows(self, rows):
-        for r in rows:
-            if not r.startswith("✅"):
-                self.block(r[2:].split(" (")[0])
-                return
-
-    def can_alert(self, now) -> bool:
-        if self.alerts_last_hour(now) >= self.cfg.max_alerts_per_hour:
-            self.block("hourly alert cap")
-            return False
-        return True
-
-    def alert_early(self, l: Launch, chain: dict, rows: list, now: float):
-        if not self.can_alert(now):
-            return
-        price = l.mcap_sol * self.sol_usd / 1e9
-        if notify(early_embed(l, chain, rows, now, self.sol_usd)):
-            self.record_call(l.mint, l.symbol, "early", price, l.creator, now)
-            self.jlog({"type": "alert", "kind": "early", "t": now_iso(), "mint": l.mint, "symbol": l.symbol,
-                       "mcap": l.mcap_sol * self.sol_usd, "buyers": len(l.buyers), "checks": rows})
-
-    def alert_breakout(self, p: Pair, rows: list, now: float):
-        if not self.can_alert(now):
-            return
-        if notify(breakout_embed(p, rows, now)):
-            self.record_call(p.mint, p.symbol, "breakout", p.snap["price"], p.creator, now, liq=p.snap.get("liq") or 0.0)
-            self.jlog({"type": "alert", "kind": "breakout", "t": now_iso(), "mint": p.mint, "symbol": p.symbol,
-                       "snap": p.snap, "checks": rows})
-            self.pairs.pop(p.mint, None)
-
-    def record_call(self, mint, symbol, kind, price, creator, now, liq=0.0):
-        self.calls[mint] = Call(mint=mint, symbol=symbol, kind=kind, t0=now, price0=price, creator=creator,
-                                peak=price, last_price=price, last_seen=now, liq0=liq, last_liq=liq, seen_dex=liq > 0)
-        self.alert_times.append(now)
-        self.last_alert = now
-        self.counts["alerts"] += 1
-        self.log(f"ALERT_{kind.upper()}", symbol, mint, price)
-        print(f"[alert] {kind} {symbol} {mint}")
-
-    # ---------------- tracker
-    def track(self, now):
-        live = [c for c in self.calls.values() if not c.closed]
-        for c in live:
-            if now - c.t0 > self.cfg.track_hours * 3600:
-                c.closed = True
-        live = [c for c in live if not c.closed]
-        for i in range(0, len(live), 30):
-            batch = live[i:i + 30]
-            res = fetch_dex_pairs([c.mint for c in batch])
+    # ---------------- monitoring live signals (§5.2)
+    def monitor(self, now):
+        live = [r for r in self.store.records.values() if r.status == "active" and not r.ended]
+        due = [r for r in live if now - (r.last_polled_at or 0) >= (self.cfg.active_poll_s if r.official else self.cfg.early_poll_s)]
+        for i in range(0, len(due), 30):
+            batch = due[i:i + 30]
+            res = fetch_dex_all_pairs([r.ca for r in batch])
             if res is None:
-                return
-            for c in batch:
-                d = res.get(c.mint)
-                price = num(d.get("priceUsd")) if d else None
-                l = self.launches.get(c.mint)
-                if d and price:
-                    c.missing_since = 0.0
-                    liq = num((d.get("liquidity") or {}).get("usd")) or 0.0
-                    c.seen_dex = True
-                    if liq > 0 and (d.get("dexId") or "").lower() != "pumpfun":   # a real pool (curve dumps are caught by the feed)
-                        c.liq0, c.last_liq = max(c.liq0, liq), liq
-                        if c.liq0 >= self.cfg.rug_min_liq and liq <= c.liq0 * (1 - self.cfg.call_liq_drop):
-                            self.update_call(c, price, now)
-                            self.kill_call(c, f"liquidity drained ({usd(c.liq0)} -> {usd(liq)})")
-                            continue
-                elif c.seen_dex and not (l and l.last_trade > now - 300):
-                    c.missing_since = c.missing_since or now
-                    if now - c.missing_since >= self.cfg.call_missing_min * 60:
-                        self.kill_call(c, "pool vanished from DexScreener")
-                    continue
-                if not price:
-                    price = l.mcap_sol * self.sol_usd / 1e9 if (l and self.sol_usd) else None
-                if not price:
-                    continue
-                self.update_call(c, price, now)
+                break
+            self.poll_ok(now)
+            for r in batch:
+                q = self.pick_quote(r, res.get(r.ca) or [], now)
+                typ = self.lc.on_quote(r.ca, q)
+                if typ:
+                    self.log(typ, r.ticker, r.ca)
+        for r in live:
+            if r.dev_wallet and self.blacklisted(r.dev_wallet):
+                self.lc.invalidate(r.ca, "dev_blacklisted", "Dev wallet is on the rug blacklist.")
+                continue
+            key = f"safety:{r.ca}"
+            full = now - (r.safety_checked_at or 0) >= self.cfg.safety_recheck_s
+            if key not in self.pending and (full or self.every(f"dev:{r.ca}", self.cfg.dev_check_s, now)):
+                if full:
+                    r.safety_checked_at = now
+                self.submit(key, "safety", safety_recheck, r.ca, r.dev_wallet, full, bool(r.migrated_at or r.source == "dex"))
+        # catalyst retries for UNCHECKED (60 min window, every 10 min)
+        for r in live:
+            if r.catalyst_tag == "UNCHECKED" and r.catalyst_first_try_at and now - r.catalyst_first_try_at <= self.cfg.catalyst_retry_minutes * 60:
+                key = f"cat:{r.ca}"
+                if key not in self.pending and self.every(key, 600, now):
+                    o = {"ca": r.ca, "ticker": r.ticker, "name": r.name}
+                    self.submit(key, "catalyst", lambda o=o: (o, check_catalyst(o["name"], o["ticker"])))
 
-    def update_call(self, c: Call, price: float, now: float):
-        c.last_price, c.last_seen = price, now
-        c.peak = max(c.peak, price)
-        hook = TRACKER_WEBHOOK or DISCORD_WEBHOOK
-        reached = [x for x in self.cfg.milestones if c.peak >= c.price0 * x and x not in c.hit]
-        if reached:
-            x = max(reached)
-            c.hit.extend(reached)
-            notify(milestone_embed(c, x, now), hook=hook)
-            self.log("MILESTONE", c.symbol, c.mint, price, f"{x}x")
-        if not c.dead and price <= c.price0 * self.cfg.dead_ratio:
-            self.kill_call(c, "")
+    def pick_quote(self, r: Record, pairs: list, now) -> Optional[dict]:
+        def mk(d):
+            dex = (d.get("dexId") or "").lower()
+            s = pair_snap(d, now)
+            return {"price": s["price"], "mc": s["mcap"], "liq": None if dex == "pumpfun" else s["liq"],
+                    "pool": d.get("pairAddress"), "dex": dex, "traded": (s["trades_m5"] or 0) > 0}
+        by = {d.get("pairAddress"): d for d in pairs}
+        on_curve = (r.pool_dex or "").lower() == "pumpfun" and not r.migrated_at
+        if r.pool in by and not (on_curve and any((d.get("dexId") or "").lower() != "pumpfun" for d in pairs)):
+            return mk(by[r.pool])
+        real = [d for d in pairs if (d.get("dexId") or "").lower() != "pumpfun"]
+        if on_curve and real:                                        # migrated: switch the primary pool once
+            return mk(max(real, key=lambda d: num((d.get("liquidity") or {}).get("usd")) or 0))
+        if r.pool is None and pairs:
+            return mk(max(pairs, key=lambda d: num((d.get("liquidity") or {}).get("usd")) or 0))
+        l = self.launches.get(r.ca)
+        if on_curve and l and self.sol_usd:                            # curve price straight from the live feed
+            mc = l.mcap_sol * self.sol_usd
+            return {"price": mc / 1e9, "mc": mc, "liq": None, "pool": r.pool, "dex": "pumpfun", "traded": now - l.last_trade < 120}
+        if on_curve:
+            return {"price": r.last_valid_price, "mc": r.last_valid_mc, "liq": None, "pool": r.pool, "dex": "pumpfun", "traded": False} \
+                if r.last_valid_price else None
+        return None
 
-    def kill_call(self, c: Call, why: str):
-        if c.dead:
+    def apply_safety(self, ca, res, now):
+        rec = self.store.get(ca)
+        if not rec or rec.ended or rec.status != "active":
             return
-        c.dead = c.closed = True
-        c.why_dead = why
-        self.blacklist_dev(c.creator, why or "alerted coin died", c.mint, c.symbol)
-        notify(dead_embed(c), hook=TRACKER_WEBHOOK or DISCORD_WEBHOOK)
-        self.log("DEAD", c.symbol, c.mint, c.last_price, f"peak {c.peak / c.price0:.2f}x {why}".strip())
-        self.jlog({"type": "outcome", "t": now_iso(), "mint": c.mint, "symbol": c.symbol, "kind": c.kind,
-                   "peak_x": round(c.peak / c.price0, 2), "dead": True, "why": why})
+        mi, rc, bal = res.get("mint"), res.get("rc"), res.get("dev_balance")
+        if mi is not None and (not mi.get("revoked") or mi.get("bad_ext")):
+            self.lc.invalidate(ca, "authority_revived", "Mint/freeze authority or a risky token setting appeared after the alert.")
+            return
+        if rc:
+            if rc.get("rugged"):
+                self.lc.kill(ca, "safety_fail", "RugCheck marks this token as rugged.")
+                return
+            burned = pump_migrated(ca, rec.pool_dex or "")
+            lp = rc.get("lp_locked")
+            if not burned and lp is not None and lp < self.cfg.min_lp_locked_or_burned_pct and \
+                    (rec.safety_snapshot.get("lp") or 0) >= self.cfg.min_lp_locked_or_burned_pct:
+                self.lc.invalidate(ca, "lp_unlocked", f"LP lock fell to {lp:.0f}%.")
+                return
+        if bal is not None and rec.dev_wallet and self.cfg.dev_sell_invalidates:
+            prev = rec.dev_balance
+            supply = (mi or {}).get("supply") or PUMP_SUPPLY_RAW
+            if prev is not None and bal < prev and (prev - bal) / supply * 100 >= self.cfg.dev_sell_dust_pct:
+                self.lc.invalidate(ca, "dev_sold", f"Dev wallet balance dropped {(prev - bal) / supply * 100:.2f}% of supply.")
+                return
+            if prev is None or bal > prev:
+                rec.dev_balance = bal                 # baseline; small sells accumulate until they pass the dust limit
 
-    def stats_24h(self, now) -> str:
-        recent = [c for c in self.calls.values() if c.t0 >= now - 86400]
-        return (f"24h: {len(recent)} alerts, {sum(1 for c in recent if 2 in c.hit)} hit 2x, "
-                f"{sum(1 for c in recent if c.dead)} died")
+    # ---------------- ops (§6)
+    def poll_ok(self, now):
+        self.last_poll_ok = now
+        self.store.meta["last_poll_ok"] = now
+        if self.gap_warned:
+            self.gap_warned = False
+            self.to_bot("Market polling recovered.")
 
-    # ---------------- quiet + status
-    def quiet_check(self, now):
-        gap = self.cfg.quiet_post_h * 3600
-        if now - self.last_alert >= gap and now - self.last_quiet >= gap:
-            top = ", ".join(f"{k} ({v})" for k, v in self.quiet_blocks.most_common(3)) or "nothing reached the checks"
-            self.quiet_blocks.clear()
-            notify({"title": "NO QUALITY PLAYS RIGHT NOW", "color": 0x747F8D,
-                    "description": f"Nothing passed every rug check in the last {self.cfg.quiet_post_h:g}h.\nMost common blocks: {top}\n{self.stats_24h(now)}"})
-            self.last_quiet = now
+    def ops(self, now):
+        # poll gap
+        since = self.last_poll_ok or self.started                 # never polled yet counts from boot
+        if now - since > self.cfg.poll_gap_alert_minutes * 60 and not self.gap_warned:
+            self.gap_warned = True
+            self.to_bot(f"⚠️ No successful market poll for {M.dur(now - since)} (data source errors; retrying with backoff).")
+        # flapping
+        win = self.cfg.scanner_fail_warn_minutes * 60
+        fails = [h for t, h in list(FAILURES) if t >= now - win]
+        if len(fails) >= self.cfg.scanner_fail_warn_count and now - self.flap_warned_at >= win:
+            self.flap_warned_at = now
+            top = ", ".join(f"{h} ({n})" for h, n in Counter(fails).most_common(3))
+            self.to_bot(f"⚠️ {len(fails)} data-source errors in {self.cfg.scanner_fail_warn_minutes:.0f} min: {top}. Still running, retrying with backoff.")
+        # heartbeat
+        last_hb = self.store.meta.get("last_heartbeat")
+        if last_hb is None or now - last_hb >= self.cfg.heartbeat_minutes * 60:
+            gap = (now - last_hb) if last_hb else None
+            s = M.tracker_stats(self.store.records.values(), now)
+            active = sum(1 for r in self.store.records.values() if r.status == "active" and r.official)
+            poll = f"{now - self.last_poll_ok:.0f}s ago" if self.last_poll_ok else "n/a"
+            txt = f"ok • poll {poll} • active {active} • tracker 24h alerts {s['alerts']}"
+            if gap and gap > self.cfg.heartbeat_minutes * 60 * 1.5:
+                txt += f" • recovered after {M.dur(gap)}"
+            self.poster.send("bot", {"title": "heartbeat", "description": txt, "color": 0x3BA55D})
+            self.store.meta["last_heartbeat"] = now
+        # scheduled posts
+        recs = list(self.store.records.values())
+        for job, channel, build in (("tracker", "signals", M.tracker_embed), ("recap", "recap", M.recap_embed),
+                                    ("leaderboard", "recap", M.leaderboard_embed), ("postmortem", "graveyard", M.postmortem_embed)):
+            d = schedule.due(job, now, self.cfg, self.store.jobs)
+            if not d:
+                continue
+            emb = build(recs, now, late=d["late"])
+            if job == "recap" and emb.get("_empty"):
+                h = datetime.fromtimestamp(d["slot"], PT).hour
+                if not (self.cfg.recap_start_hour <= h <= self.cfg.recap_end_hour) and self.cfg.recap_skip_if_empty_overnight:
+                    self.store.jobs[job] = d["slot"]
+                    continue
+            if self.poster.send(channel, emb) is not None:
+                self.store.jobs[job] = d["slot"]
+                self.store.save()
 
     def status(self, now):
         top = ", ".join(f"{k} ({v})" for k, v in self.blocks.most_common(4)) or "none"
-        line = (f"[status] {now_iso()} feed={self.feed.status() if self.feed else 'off'} sol=${self.sol_usd or 0:.0f} "
-                f"launches={self.counts['launches']} watching={len(self.launches)} pairs={len(self.pairs)} "
-                f"checking={len(self.pending)} blacklist={len(self.blacklist)} (+{self.counts['blacklisted']} this run) | {self.stats_24h(now)} | top blocks: {top} | "
-                f"api/min dex={LIMITERS['dex'].per_min()} rpc={LIMITERS['rpc'].per_min()} rugcheck={LIMITERS['rugcheck'].per_min()}")
-        print(line)
-        self.status_lines.append(line)
+        s = M.tracker_stats(self.store.records.values(), now)
+        active = sum(1 for r in self.store.records.values() if r.status == "active")
+        line_ = (f"[status] {fmt_pt(now, True)} feed={self.feed.status() if self.feed else 'off'} sol=${self.sol_usd or 0:.0f} "
+                 f"launches={self.counts['launches']} watching={len(self.launches)} pairs={len(self.pairs)} live={active} "
+                 f"checking={len(self.pending)} blacklist={len(self.store.blacklist)} | 24h: {s['alerts']} alerts, "
+                 f"{s['hit2']} hit 2x, {s['dead']} dead, {s['invalidated']} invalidated | top blocks: {top} | "
+                 f"api/min dex={LIMITERS['dex'].per_min()} rpc={LIMITERS['rpc'].per_min()} rugcheck={LIMITERS['rugcheck'].per_min()}")
+        print(line_)
+        self.status_lines.append(line_)
         self.blocks.clear()
         with open(self.cfg.status_file, "w") as f:
-            f.write(f"{VERSION} | updated {now_iso()} | up {ago(now - self.started)}\n"
-                    f"alerts={'on' if DISCORD_WEBHOOK else 'OFF (no DISCORD_WEBHOOK_URL)'} "
-                    f"tracker={'own channel' if TRACKER_WEBHOOK else 'alerts channel'} "
-                    f"rpc={'custom' if os.getenv('SOLANA_RPC_URL') else 'public'}\n\n" + "\n".join(self.status_lines) + "\n")
+            f.write(f"{VERSION} | updated {fmt_pt(now, True)} | up {M.dur(now - self.started)}\n"
+                    f"channels: " + ", ".join(f"{k}={'own' if v else 'fallback'}" for k, v in WEBHOOKS.items()) +
+                    f" | rpc={'custom' if os.getenv('SOLANA_RPC_URL') else 'public'}\n\n" + "\n".join(self.status_lines) + "\n")
+
+    def save(self):
+        self.store.creator_times = {c: list(dq) for c, dq in self.creator_times.items() if len(dq) >= 2}
+        self.store.prune(self.clock(), self.cfg.records_keep_days, self.cfg.blacklist_days, self.cfg.blacklist_max)
+        self.store.save()
+
+    def git_sync(self):
+        """GitHub Actions only: commit + push state mid-run so a runner loss costs minutes, not hours."""
+        files = [self.cfg.state_file, self.cfg.log_file, self.cfg.signals_file, self.cfg.status_file, self.cfg.backup_dir]
+        try:
+            subprocess.run(["git", "add", "-A", "--"] + [f for f in files if os.path.exists(f)], check=True, capture_output=True, timeout=30)
+            if subprocess.run(["git", "diff", "--cached", "--quiet"], timeout=30).returncode == 0:
+                return
+            subprocess.run(["git", "-c", "user.name=signal-bot", "-c", "user.email=signal-bot@users.noreply.github.com",
+                            "commit", "-q", "-m", "update state"], check=True, capture_output=True, timeout=30)
+            subprocess.run(["git", "pull", "-q", "--rebase", "-X", "theirs", "origin", "main"], capture_output=True, timeout=60)
+            subprocess.run(["git", "push", "-q", "origin", "HEAD:main"], capture_output=True, timeout=60)
+        except Exception as e:
+            print(f"[warn] git sync failed: {e}")
 
     # ---------------- main loop
+    def boot_message(self):
+        st, now = self.store, self.clock()
+        s = M.tracker_stats(st.records.values(), now)
+        active = sum(1 for r in st.records.values() if r.status == "active" and r.official)
+        last = st.meta.get("last_poll_ok")
+        state = "ok" if st.loaded else f"STARTED EMPTY ({st.load_error})"
+        self.to_bot(f"booted {VERSION} • state {state} • recovered {active} active signals • last tracker: {s['alerts']} alerts, "
+                    f"{s['hit2']} hit 2x, {s['dead']} dead • last successful poll {fmt_pt(last, True) if last else 'n/a'}", "restart")
+
     def tick(self, now):
+        self.last_tick = now
         if self.sol_usd is None or now - self.sol_t > 120:
             v = fetch_sol_usd()
             if v:
@@ -1405,98 +1098,139 @@ class Bot:
         if self.feed:
             self.on_feed(self.feed.drain())
         if self.every("prune", 15, now):
-            self.prune_launches(now)
+            self.prune(now)
         self.discover(now)
         self.refresh_pairs(now)
         self.evaluate(now)
         self.collect(now)
-        if self.every("track", 30, now):
-            self.track(now)
-        if self.every("quiet", 300, now):
-            self.quiet_check(now)
+        self.monitor(now)
+        self.collect(now)
+        self.ops(now)
         if self.every("status", 60, now):
             self.status(now)
-        if self.every("save", 300, now):
-            self.save_state()
+        if self.every("save", 60, now):
+            self.save()
+        if self.cfg.git_sync_minutes and self.every("git", self.cfg.git_sync_minutes * 60, now) and now - self.started > 60:
+            self.git_sync()
 
-    def run(self, max_minutes: Optional[float] = None):
-        stop = {"flag": False}
 
-        def handler(*_):
-            stop["flag"] = True
-        os_signal.signal(os_signal.SIGTERM, handler)
-        os_signal.signal(os_signal.SIGINT, handler)
-        if self.feed:
-            self.feed.start()
-        end = self.started + max_minutes * 60 if max_minutes else None
-        print(f"[start] {VERSION} rpc={'custom' if os.getenv('SOLANA_RPC_URL') else 'public'} "
-              f"discord={'on' if DISCORD_WEBHOOK else 'off'}")
-        try:
-            while not stop["flag"] and (end is None or self.clock() < end):
+DEATH_TEXT = {"dev_sold": "dev sold after alert", "liquidity_pulled": "liquidity pulled", "safety_fail": "safety fail after alert"}
+
+
+def start_health_server(bot: Bot, port: int):
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):
+            now = time.time()
+            ok = (now - bot.last_tick < 120 and os.path.exists(bot.cfg.state_file)
+                  and bot.last_poll_ok is not None and now - bot.last_poll_ok <= bot.cfg.health_poll_stale_sec)
+            body = json.dumps({"ok": ok, "last_poll_age_s": None if bot.last_poll_ok is None else round(now - bot.last_poll_ok),
+                               "active": sum(1 for r in bot.store.records.values() if r.status == "active")}).encode()
+            self.send_response(200 if ok else 503)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+    srv = HTTPServer(("0.0.0.0", port), H)
+    threading.Thread(target=srv.serve_forever, daemon=True, name="health").start()
+    print(f"[health] http://0.0.0.0:{port}/")
+
+
+def run(bot: Bot, max_minutes: Optional[float] = None):
+    stop = {"flag": False}
+
+    def handler(*_):
+        stop["flag"] = True
+    os_signal.signal(os_signal.SIGTERM, handler)
+    os_signal.signal(os_signal.SIGINT, handler)
+
+    def watchdog():                                       # deadlocked loop -> exit so the process manager restarts us
+        while not stop["flag"]:
+            time.sleep(30)
+            if time.time() - bot.last_tick > 300:
+                print("[watchdog] main loop stuck for 5 min -> exiting for restart")
                 try:
-                    self.tick(self.clock())
-                except Exception:
-                    traceback.print_exc()
-                time.sleep(1.0)
-        finally:
-            if self.feed:
-                self.feed.stop = True
-            self.save_state()
-            self.status(self.clock())
-            self.pool.shutdown(wait=False, cancel_futures=True)
-            print("[stop] saved")
+                    bot.save()
+                finally:
+                    os._exit(3)
+    threading.Thread(target=watchdog, daemon=True, name="watchdog").start()
+    if bot.cfg.health_port:
+        start_health_server(bot, bot.cfg.health_port)
+    if bot.feed:
+        bot.feed.start()
+    bot.boot_message()
+    end = bot.started + max_minutes * 60 if max_minutes else None
+    print(f"[start] {VERSION} rpc={'custom' if os.getenv('SOLANA_RPC_URL') else 'public'}")
+    try:
+        while not stop["flag"] and (end is None or bot.clock() < end):
+            try:
+                bot.tick(bot.clock())
+            except Exception:
+                traceback.print_exc()                     # recoverable: log and keep going, never restart for this
+            time.sleep(1.0)
+    finally:
+        if bot.feed:
+            bot.feed.stop = True
+        bot.save()
+        bot.status(bot.clock())
+        bot.pool.shutdown(wait=False, cancel_futures=True)
+        print("[stop] saved")
 
 
 # ======================================================================= test + probe
-def send_test():
+def send_test(poster: Poster):
     now, cfg = time.time(), Config()
-    l = Launch(mint="DemoEarly1111111111111111111111111111111pump", name="Demo Early", symbol="DEMO",
-               creator="Dev1111111111111111111111111111111111111111", curve="Curve11111111111111111111111111111111111111", t0=now - 900)
-    l.hist.extend([(now - 400, 60.0), (now - 10, 95.0)])
-    l.mcap_sol = l.peak_sol = 95.0
-    l.buyers = {f"w{i}" for i in range(84)}
-    l.n_buys, l.n_sells = 140, 38
-    l.flow.extend([(now - 60, "buy", 12.0), (now - 30, "sell", 4.0)])
-    ok, rows = early_safety(l, {"mint": {"revoked": True, "supply": PUMP_SUPPLY_RAW, "bad_ext": []},
-                                "holders": {"top1": 2.9, "top10": 14.1, "dev": 0.0}}, cfg)
-    notify(early_embed(l, {"curve": {"progress": 0.31, "reserve_sol": 18.4}}, rows, now, 160.0))
-    p = Pair(mint="DemoBreakout11111111111111111111111111111pump", symbol="KYTRO", name="Kytro (sample)", pair="DemoPair",
-             dex="pumpswap", created_ms=(now - 42 * 60) * 1000,
-             snap={"t": now, "price": 6e-5, "mcap": 59_678, "liq": 17_604, "vol_h1": 93_641, "buys_h1": 410,
-                   "sells_h1": 180, "chg_m5": 12, "chg_h1": 64})
-    ok, rows = breakout_safety(p, {"rc": {"holders": 612, "top1": 3.2, "top10": 18.5, "insiders": 0.0, "lp_locked": None,
-                                          "rugged": False, "dangers": [], "creator": None, "dev": None, "revoked": True},
-                                   "mint": {"revoked": True, "bad_ext": []}}, cfg, False)
-    notify(breakout_embed(p, rows, now))
-    c = Call(mint=p.mint, symbol="KYTRO", kind="breakout", t0=now - 3000, price0=6e-5, peak=1.25e-4)
-    notify(milestone_embed(c, 2, now), hook=TRACKER_WEBHOOK or DISCORD_WEBHOOK)
-    print("[test] sent sample posts")
+    ca = "SampLe1111111111111111111111111111111111pump"
+    obs = {"ca": ca, "ticker": "SAMPLE", "name": "Sample (test post)", "price": 6e-5, "mc": 59_678, "liq": 17_604, "pool": "SamplePool",
+           "score": 79, "score_parts": "71 +8 catalyst = 79", "reasons": ["liquidity 29% of MC", "1h volume 1.57x MC"],
+           "metrics": {"age_s": 2500, "vol_m5": 9000, "vol_h1": 93_641, "chg_m5": 12, "chg_h1": 64, "buys": 410, "sells": 180,
+                       "buyers": 233, "holders": 612, "top10": 18.5, "dev": 0.0, "insiders": 0.0, "bundler": 4.0, "sniper": 9.0},
+           "checks": ["✅ RugCheck clean", "✅ Mint & freeze revoked", "✅ LP burned (pump.fun migration)"],
+           "catalyst_tag": "REAL_CATALYST", "catalyst_url": "https://example.com/news", "catalyst_summary": "Example: event coverage (test)"}
+    rec = Record(ca=ca, ticker="SAMPLE", official=True, first_alert_at=now - 3000, first_alert_price=6e-5, first_alert_mc_usd=59_678,
+                 peak_price=1.5e-4, peak_mc_usd=150_000, peak_at=now - 600, last_valid_price=1.3e-4, last_valid_mc=130_000,
+                 last_valid_at=now - 60, max_drawdown_pct=-12)
+    poster.send("signals", M.signal_embed("NEW", obs))
+    poster.send("early-watch", M.signal_embed("NEW", obs), M.EARLY_BANNER)
+    poster.send("wins", M.multiplier_embed(2, rec, 1.3e-4, 130_000, now))
+    poster.send("graveyard", M.ending_embed("DEAD", rec, "liquidity_pulled", "Liquidity $40K → $300.", now))
+    poster.send("signals", M.tracker_embed([rec], now))
+    poster.send("bot", {"title": "heartbeat", "description": "ok • test post"})
+    print("[test] sent one sample of each message type")
 
 
 def probe(mint: str):
-    cfg = Config()
-    print(f"mint account: {mint_info(mint)}")
-    d = (fetch_dex_pairs([mint]) or {}).get(mint)
-    print(f"dex pair: {d.get('dexId') if d else None} {d.get('pairAddress') if d else ''}")
-    p = Pair(mint=mint, pair=(d or {}).get("pairAddress", ""), dex=(d or {}).get("dexId", ""),
-             created_ms=num((d or {}).get("pairCreatedAt")), snap=pair_snap(d, time.time()) if d else {})
-    chain = deep_breakout(mint, p.pair, True)
-    print(f"rugcheck: {json.dumps(chain.get('rc'), default=str)}")
-    ok, rows = breakout_safety(p, chain, cfg, False)
-    print("\n".join(rows))
-    print(f"breakout gates: {breakout_gates(p, time.time(), cfg) or 'all passed'}")
-    print(f"=> rug checks {'PASSED' if ok else 'FAILED'}")
+    cfg, now = load_config(), time.time()
+    pairs = (fetch_dex_all_pairs([mint]) or {}).get(mint) or []
+    real = [d for d in pairs if (d.get("dexId") or "").lower() != "pumpfun"]
+    print(f"pairs: {[(d.get('dexId'), d.get('pairAddress')) for d in pairs]}")
+    if not real:
+        print("still on the bonding curve (or unknown to DexScreener); curve coins are judged from the live feed")
+        return
+    d = max(real, key=lambda x: num((x.get("liquidity") or {}).get("usd")) or 0)
+    p = Pair(mint=mint, pair=d.get("pairAddress"), dex=d.get("dexId"), symbol=(d.get("baseToken") or {}).get("symbol"),
+             created_ms=num(d.get("pairCreatedAt")), snap=pair_snap(d, now))
+    res = deep_dex(mint, p.pair, None, None)
+    p.rc, p.chain = res.get("rc"), res
+    obs = finalize(dex_observation(p, now, cfg, False, None), cfg, "UNCHECKED", [], None)
+    print("\n".join(obs["checks"]))
+    print(f"hard fails: {obs['hard_fails'] or 'none'} | gate fails: {obs['gate_fails'] or 'none'}")
+    print(f"score {obs['score']} ({obs['score_parts'] or obs['raw_score']}) | breakout: {obs['breakout_reasons'] or 'no'}")
+    print(f"=> #signals: {obs['qualifies_signals']} | #early-watch: {obs['qualifies_early']}")
 
 
 def main(argv):
+    cfg = load_config()
+    poster = DiscordPoster(WEBHOOKS)
     if "--test" in argv:
-        send_test()
+        send_test(poster)
         return
     if "--probe" in argv:
-        probe(argv[argv.index("--probe") + 1])
+        probe(norm_ca(argv[argv.index("--probe") + 1]))
         return
     mm = float(argv[argv.index("--max-minutes") + 1]) if "--max-minutes" in argv else None
-    Bot(Config(), feed=PumpFeed()).run(max_minutes=mm)
+    run(Bot(cfg, poster, feed=PumpFeed()), max_minutes=mm)
 
 
 if __name__ == "__main__":

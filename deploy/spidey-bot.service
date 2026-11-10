@@ -1,0 +1,25 @@
+# systemd unit for an always-on VPS.
+#   sudo cp deploy/spidey-bot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now spidey-bot
+#   journalctl -u spidey-bot -f          (logs; journald rotates them)
+[Unit]
+Description=Spidey Bot (Solana memecoin signals)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=spidey
+WorkingDirectory=/opt/spidey/signals
+EnvironmentFile=/opt/spidey/spidey.env
+Environment=SPIDEY_HEALTH_PORT=8080
+ExecStart=/usr/bin/python3 memecoin_bot.py
+Restart=always
+RestartSec=10
+# a crash or a stuck loop (the bot's watchdog exits after 5 min) restarts it; recoverable API errors never do
+StartLimitIntervalSec=0
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
