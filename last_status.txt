@@ -1,35 +1,44 @@
-SCANNER-6.0 | updated 2026-11-10T18:10:15Z | up 31m
+SCANNER-6.0 | updated 2026-11-10T18:51:19Z | up 40m
 alerts=on tracker=alerts channel rpc=public
 
-[status] 2026-11-10T17:38:57Z feed=connected sol=$82 launches=0 watching=0 pairs=10 checking=0 | 24h: 0 alerts, 0 hit 2x, 0 died | top blocks: none | api/min dex=3 rpc=0 rugcheck=0
-[status] 2026-11-10T17:39:58Z feed=connected sol=$82 launches=9 watching=9 pairs=11 checking=0 | 24h: 0 alerts, 0 hit 2x, 0 died | top blocks: none | api/min dex=2 rpc=0 rugcheck=0
-[status] 2026-11-10T17:40:59Z feed=connected sol=$82 launches=19 watching=19 pairs=12 checking=0 | 24h: 0 alerts, 0 hit 2x, 0 died | top blocks: none | api/min dex=4 rpc=0 rugcheck=0
-[status] 2026-11-10T17:42:00Z feed=connected sol=$82 launches=29 watching=29 pairs=13 checking=0 | 24h: 0 alerts, 0 hit 2x, 0 died | top blocks: none | api/min dex=4 rpc=0 rugcheck=0
-[status] 2026-11-10T17:43:00Z feed=connected sol=$82 launches=34 watching=34 pairs=20 checking=0 | 24h: 1 alerts, 0 hit 2x, 0 died | top blocks: none | api/min dex=6 rpc=1 rugcheck=1
-[status] 2026-11-10T17:44:00Z feed=connected sol=$82 launches=44 watching=43 pairs=21 checking=0 | 24h: 1 alerts, 0 hit 2x, 0 died | top blocks: none | api/min dex=8 rpc=0 rugcheck=0
-[status] 2026-11-10T17:45:00Z feed=connected sol=$82 launches=54 watching=45 pairs=22 checking=1 | 24h: 1 alerts, 0 hit 2x, 0 died | top blocks: none | api/min dex=10 rpc=0 rugcheck=0
-[status] 2026-11-10T17:46:01Z feed=connected sol=$82 launches=64 watching=46 pairs=26 checking=1 | 24h: 1 alerts, 0 hit 2x, 0 died | top blocks: RugCheck: Large Amount of LP Unlocked (1) | api/min dex=10 rpc=0 rugcheck=0
-[status] 2026-11-10T17:47:02Z feed=connected sol=$82 launches=74 watching=44 pairs=26 checking=0 | 24h: 1 alerts, 0 hit 2x, 0 died | top blocks: RugCheck: Large Amount of LP Unlocked (1) | api/min dex=13 rpc=0 rugcheck=0
-[status] 2026-11-10T17:48:03Z feed=connected sol=$82 launches=83 watching=48 pairs=27 checking=0 | 24h: 1 alerts, 0 hit 2x, 0 died | top blocks: none | api/min dex=10 rpc=0 rugcheck=0
-[status] 2026-11-10T17:49:04Z feed=connected sol=$82 launches=93 watching=49 pairs=22 checking=0 | 24h: 1 alerts, 0 hit 2x, 0 died | top blocks: none | api/min dex=11 rpc=0 rugcheck=0
-[status] 2026-11-10T17:50:05Z feed=connected sol=$82 launches=101 watching=47 pairs=22 checking=0 | 24h: 1 alerts, 0 hit 2x, 0 died | top blocks: none | api/min dex=9 rpc=0 rugcheck=0
-[status] 2026-11-10T17:51:05Z feed=connected sol=$82 launches=123 watching=59 pairs=22 checking=0 | 24h: 1 alerts, 0 hit 2x, 0 died | top blocks: none | api/min dex=10 rpc=0 rugcheck=0
-[status] 2026-11-10T17:52:06Z feed=connected sol=$82 launches=138 watching=64 pairs=31 checking=0 | 24h: 1 alerts, 0 hit 2x, 0 died | top blocks: none | api/min dex=11 rpc=0 rugcheck=0
-[status] 2026-11-10T17:53:07Z feed=connected sol=$82 launches=153 watching=70 pairs=24 checking=0 | 24h: 1 alerts, 0 hit 2x, 0 died | top blocks: none | api/min dex=11 rpc=0 rugcheck=0
-[status] 2026-11-10T17:54:08Z feed=connected sol=$82 launches=164 watching=71 pairs=25 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=8 rpc=0 rugcheck=0
-[status] 2026-11-10T17:55:08Z feed=connected sol=$82 launches=175 watching=74 pairs=25 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=7 rpc=0 rugcheck=0
-[status] 2026-11-10T17:56:08Z feed=connected sol=$82 launches=186 watching=63 pairs=24 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=7 rpc=0 rugcheck=0
-[status] 2026-11-10T17:57:09Z feed=connected sol=$82 launches=190 watching=52 pairs=25 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=8 rpc=0 rugcheck=0
-[status] 2026-11-10T17:58:09Z feed=connected sol=$82 launches=202 watching=48 pairs=26 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=7 rpc=0 rugcheck=0
-[status] 2026-11-10T17:59:10Z feed=connected sol=$82 launches=221 watching=59 pairs=23 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=9 rpc=0 rugcheck=0
-[status] 2026-11-10T18:00:10Z feed=connected sol=$82 launches=236 watching=63 pairs=22 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=8 rpc=0 rugcheck=0
-[status] 2026-11-10T18:01:10Z feed=connected sol=$82 launches=250 watching=63 pairs=20 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=10 rpc=0 rugcheck=0
-[status] 2026-11-10T18:02:11Z feed=connected sol=$82 launches=268 watching=77 pairs=24 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=9 rpc=0 rugcheck=0
-[status] 2026-11-10T18:03:11Z feed=connected sol=$82 launches=276 watching=77 pairs=24 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=10 rpc=0 rugcheck=0
-[status] 2026-11-10T18:04:12Z feed=connected sol=$82 launches=302 watching=86 pairs=21 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=8 rpc=0 rugcheck=0
-[status] 2026-11-10T18:05:13Z feed=connected sol=$82 launches=313 watching=77 pairs=23 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=13 rpc=0 rugcheck=0
-[status] 2026-11-10T18:06:13Z feed=connected sol=$82 launches=325 watching=74 pairs=24 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=10 rpc=0 rugcheck=0
-[status] 2026-11-10T18:07:14Z feed=connected sol=$82 launches=343 watching=74 pairs=24 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=11 rpc=0 rugcheck=0
-[status] 2026-11-10T18:08:14Z feed=connected sol=$82 launches=357 watching=78 pairs=21 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=12 rpc=0 rugcheck=0
-[status] 2026-11-10T18:09:15Z feed=connected sol=$82 launches=382 watching=77 pairs=23 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=12 rpc=0 rugcheck=0
-[status] 2026-11-10T18:10:15Z feed=connected sol=$82 launches=390 watching=75 pairs=24 checking=0 | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=11 rpc=0 rugcheck=0
+[status] 2026-11-10T18:11:01Z feed=connected sol=$82 launches=0 watching=0 pairs=8 checking=0 blacklist=1 (+0 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=3 rpc=0 rugcheck=0
+[status] 2026-11-10T18:12:00Z feed=connected sol=$82 launches=9 watching=9 pairs=10 checking=0 blacklist=2 (+1 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=5 rpc=0 rugcheck=1
+[status] 2026-11-10T18:13:02Z feed=connected sol=$82 launches=24 watching=24 pairs=11 checking=0 blacklist=3 (+2 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=5 rpc=0 rugcheck=1
+[status] 2026-11-10T18:14:02Z feed=connected sol=$82 launches=41 watching=41 pairs=22 checking=0 blacklist=3 (+2 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=3 rpc=0 rugcheck=0
+[status] 2026-11-10T18:15:02Z feed=connected sol=$82 launches=48 watching=48 pairs=21 checking=0 blacklist=4 (+3 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=6 rpc=0 rugcheck=1
+[status] 2026-11-10T18:16:02Z feed=connected sol=$82 launches=56 watching=55 pairs=12 checking=0 blacklist=4 (+3 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=5 rpc=0 rugcheck=0
+[status] 2026-11-10T18:17:02Z feed=connected sol=$82 launches=61 watching=52 pairs=12 checking=0 blacklist=4 (+3 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=5 rpc=0 rugcheck=0
+[status] 2026-11-10T18:18:03Z feed=connected sol=$82 launches=74 watching=53 pairs=12 checking=0 blacklist=4 (+3 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=6 rpc=0 rugcheck=0
+[status] 2026-11-10T18:19:03Z feed=connected sol=$82 launches=95 watching=60 pairs=13 checking=0 blacklist=4 (+3 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=5 rpc=0 rugcheck=0
+[status] 2026-11-10T18:20:04Z feed=connected sol=$82 launches=117 watching=69 pairs=13 checking=0 blacklist=5 (+4 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=5 rpc=0 rugcheck=1
+[status] 2026-11-10T18:21:05Z feed=connected sol=$82 launches=124 watching=69 pairs=12 checking=0 blacklist=5 (+4 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=6 rpc=0 rugcheck=0
+[status] 2026-11-10T18:22:05Z feed=connected sol=$82 launches=131 watching=70 pairs=13 checking=0 blacklist=5 (+4 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=4 rpc=0 rugcheck=0
+[status] 2026-11-10T18:23:05Z feed=connected sol=$82 launches=153 watching=80 pairs=15 checking=0 blacklist=5 (+4 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=5 rpc=0 rugcheck=0
+[status] 2026-11-10T18:24:06Z feed=connected sol=$82 launches=174 watching=79 pairs=13 checking=0 blacklist=7 (+6 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=6 rpc=0 rugcheck=3
+[status] 2026-11-10T18:25:06Z feed=connected sol=$83 launches=200 watching=82 pairs=17 checking=0 blacklist=7 (+6 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=7 rpc=0 rugcheck=0
+[status] 2026-11-10T18:26:07Z feed=connected sol=$83 launches=221 watching=96 pairs=20 checking=0 blacklist=7 (+6 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=6 rpc=0 rugcheck=0
+[status] 2026-11-10T18:27:08Z feed=connected sol=$82 launches=225 watching=93 pairs=17 checking=0 blacklist=7 (+6 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=10 rpc=0 rugcheck=0
+[status] 2026-11-10T18:28:09Z feed=connected sol=$82 launches=225 watching=71 pairs=22 checking=0 blacklist=7 (+6 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=8 rpc=0 rugcheck=0
+[status] 2026-11-10T18:29:09Z feed=connected sol=$83 launches=225 watching=51 pairs=18 checking=0 blacklist=8 (+7 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=10 rpc=0 rugcheck=1
+[status] 2026-11-10T18:30:09Z feed=connected sol=$83 launches=225 watching=24 pairs=16 checking=0 blacklist=9 (+8 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=8 rpc=0 rugcheck=2
+[status] 2026-11-10T18:31:09Z feed=connected sol=$83 launches=225 watching=4 pairs=18 checking=0 blacklist=9 (+8 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=9 rpc=0 rugcheck=0
+[status] 2026-11-10T18:32:10Z feed=connected sol=$83 launches=225 watching=0 pairs=18 checking=0 blacklist=9 (+8 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=8 rpc=0 rugcheck=0
+[status] 2026-11-10T18:33:10Z feed=connected sol=$83 launches=225 watching=0 pairs=16 checking=0 blacklist=10 (+9 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=9 rpc=0 rugcheck=1
+[status] 2026-11-10T18:34:10Z feed=connected sol=$83 launches=225 watching=0 pairs=17 checking=0 blacklist=10 (+9 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=8 rpc=0 rugcheck=0
+[status] 2026-11-10T18:35:11Z feed=connected sol=$83 launches=225 watching=0 pairs=19 checking=0 blacklist=10 (+9 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=9 rpc=0 rugcheck=0
+[status] 2026-11-10T18:36:11Z feed=connected sol=$83 launches=225 watching=0 pairs=22 checking=0 blacklist=10 (+9 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=9 rpc=0 rugcheck=0
+[status] 2026-11-10T18:37:11Z feed=connected sol=$83 launches=225 watching=0 pairs=23 checking=0 blacklist=10 (+9 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=10 rpc=0 rugcheck=0
+[status] 2026-11-10T18:38:12Z feed=connected sol=$83 launches=225 watching=0 pairs=23 checking=0 blacklist=11 (+10 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=9 rpc=0 rugcheck=1
+[status] 2026-11-10T18:39:13Z feed=connected sol=$83 launches=225 watching=0 pairs=23 checking=0 blacklist=11 (+10 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=10 rpc=0 rugcheck=0
+[status] 2026-11-10T18:40:13Z feed=connected sol=$83 launches=225 watching=0 pairs=24 checking=0 blacklist=12 (+11 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=9 rpc=0 rugcheck=2
+[status] 2026-11-10T18:41:14Z feed=connected sol=$83 launches=225 watching=0 pairs=25 checking=0 blacklist=13 (+12 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=10 rpc=0 rugcheck=1
+[status] 2026-11-10T18:42:14Z feed=connected sol=$83 launches=225 watching=0 pairs=25 checking=0 blacklist=13 (+12 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=9 rpc=0 rugcheck=1
+[status] 2026-11-10T18:43:15Z feed=connected sol=$83 launches=225 watching=0 pairs=26 checking=0 blacklist=14 (+13 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=9 rpc=0 rugcheck=1
+[status] 2026-11-10T18:44:15Z feed=connected sol=$83 launches=225 watching=0 pairs=24 checking=0 blacklist=14 (+13 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=9 rpc=0 rugcheck=0
+[status] 2026-11-10T18:45:16Z feed=connected sol=$83 launches=225 watching=0 pairs=23 checking=0 blacklist=14 (+13 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=9 rpc=0 rugcheck=1
+[status] 2026-11-10T18:46:16Z feed=connected sol=$83 launches=225 watching=0 pairs=26 checking=0 blacklist=15 (+14 this run) | 24h: 1 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=9 rpc=0 rugcheck=0
+[status] 2026-11-10T18:47:16Z feed=connected sol=$83 launches=225 watching=0 pairs=24 checking=0 blacklist=15 (+14 this run) | 24h: 2 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=7 rpc=1 rugcheck=2
+[status] 2026-11-10T18:48:17Z feed=connected sol=$83 launches=225 watching=0 pairs=24 checking=0 blacklist=16 (+15 this run) | 24h: 2 alerts, 0 hit 2x, 1 died | top blocks: none | api/min dex=9 rpc=0 rugcheck=1
+[status] 2026-11-10T18:49:18Z feed=connected sol=$83 launches=238 watching=12 pairs=27 checking=0 blacklist=16 (+15 this run) | 24h: 2 alerts, 0 hit 2x, 1 died | top blocks: RugCheck: Large Amount of LP Unlocked (1) | api/min dex=12 rpc=1 rugcheck=1
+[status] 2026-11-10T18:50:19Z feed=connected sol=$83 launches=247 watching=21 pairs=28 checking=0 blacklist=16 (+15 this run) | 24h: 2 alerts, 0 hit 2x, 1 died | top blocks: RugCheck: Large Amount of LP Unlocked (2) | api/min dex=10 rpc=2 rugcheck=1
+[status] 2026-11-10T18:51:19Z feed=connected sol=$83 launches=262 watching=35 pairs=30 checking=0 blacklist=16 (+15 this run) | 24h: 2 alerts, 0 hit 2x, 1 died | top blocks: RugCheck: Large Amount of LP Unlocked (2) | api/min dex=15 rpc=2 rugcheck=0
