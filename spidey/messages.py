@@ -2,15 +2,20 @@
 from statistics import median
 from typing import Optional
 
-from .store import Record, fmt_pt
+from .store import RUG_REASONS, STAGES, Record, fmt_pt, stage_of
 
 FOOTER_TEXT = "Research only, not financial advice."
 EARLY_BANNER = "NOT A BUY CALL — early watch only."
 COLORS = {"NEW": 0x3BA55D, "UPDATE": 0x5865F2, "BREAKOUT": 0xF0A020, "2X": 0x57F287, "3X": 0x57F287, "5X": 0x57F287,
           "INVALIDATED": 0xED4245, "DEAD": 0x99AAB5, "CORRECTION": 0xFEE75C}
-DEATH_LABEL = {"liquidity_pulled": "liquidity pulled", "dev_sold": "dev sold", "dev_blacklisted": "dev blacklisted",
+STAGE_LABEL = {"new_pairs": "New Pairs", "final_stretch": "Final Stretch", "migrated": "Migrated"}
+DEATH_LABEL = {"price_collapse": "price collapsed", "lp_unlocked": "LP unlocked", "authority_revived": "authority revived",
+               "liquidity_pulled": "liquidity pulled", "dev_sold": "dev sold", "dev_blacklisted": "dev blacklisted",
                "no_trades": "no trades (quiet fade)", "safety_fail": "safety fail", "manual": "manual"}
 LESSON = {
+    "price_collapse": "Price fell 90%+ from its high. A dump this deep is treated as a rug even if some liquidity is left.",
+    "lp_unlocked": "LP was not actually locked/burned. The real RugCheck lock % is now required.",
+    "authority_revived": "Mint/freeze authority came back after the alert.",
     "dev_sold": "Dev wallet sold after the alert. Any dev sell now ends the signal immediately.",
     "dev_blacklisted": "Dev had rugged before. Repeat rug wallets are blocked for 30 days.",
     "liquidity_pulled": "LP was pulled or drained. Prefer burned/locked LP and deeper pools.",
@@ -89,6 +94,9 @@ def signal_embed(typ: str, obs: dict, rec: Optional[Record] = None, changed: Opt
     m = obs.get("metrics") or {}
     score_line = f"score {obs['score']}/100"
     lines = [ca_line(obs["ca"])]
+    if obs.get("stage"):
+        bp = obs.get("bonding_pct")
+        lines.append(f"Stage: **{STAGE_LABEL.get(obs['stage'], obs['stage'])}**" + (f" · bonding {bp:.0f}%" if bp is not None else ""))
     if changed:
         lines.append("**What changed:** " + "; ".join(changed))
     if obs.get("score_parts"):
@@ -181,21 +189,59 @@ def tracker_stats(records, now: float) -> dict:
     win = [r for r in records if r.official and r.first_alert_at and now - 86400 <= r.first_alert_at <= now]
     pk = [r.peak_multiple or 0 for r in win]
     t = {k: _med([r.multiple(r.price_at.get(k)) for r in win]) for k in ("t+15m", "t+30m", "t+60m")}
-    return {"alerts": len(win), "hit2": sum(p >= 2 for p in pk), "hit3": sum(p >= 3 for p in pk), "hit5": sum(p >= 5 for p in pk),
+    return {"rugs": sum(r.ended and r.death_reason in RUG_REASONS for r in win),
+            "fades": sum(r.ended and r.death_reason not in RUG_REASONS for r in win),
+            "alerts": len(win), "hit2": sum(p >= 2 for p in pk), "hit3": sum(p >= 3 for p in pk), "hit5": sum(p >= 5 for p in pk),
             "dead": sum(r.status == "dead" for r in win), "invalidated": sum(r.status == "invalidated" for r in win),
             "open": sum(not r.ended for r in win), "median_dd": _med([r.max_drawdown_pct for r in win]),
             "t15": t["t+15m"], "t30": t["t+30m"], "t60": t["t+60m"]}
+
+
+def _start(r: Record):
+    return r.first_alert_at if r.official else r.early_alert_at
+
+
+def _peak_x(r: Record) -> float:
+    base = r.first_alert_price if r.official else r.early_alert_price
+    return (r.peak_price / base) if (base and r.peak_price) else 0.0
+
+
+def stage_stats(records, now: float) -> dict:
+    """Per stage, every coin posted in the last 24h (official + early-watch): posts, 2x, 5x, rugs, quiet fades."""
+    out = {st: {"posts": 0, "official": 0, "hit2": 0, "hit5": 0, "rugs": 0, "fades": 0} for st in STAGES}
+    for r in records:
+        t = _start(r)
+        if not t or not (now - 86400 <= t <= now):
+            continue
+        d = out[stage_of(r)]
+        d["posts"] += 1
+        d["official"] += bool(r.official)
+        d["hit2"] += _peak_x(r) >= 2
+        d["hit5"] += _peak_x(r) >= 5
+        if r.ended:
+            d["rugs" if r.death_reason in RUG_REASONS else "fades"] += 1
+    return out
+
+
+def stage_lines(records, now: float) -> list:
+    out = []
+    for st, d in stage_stats(records, now).items():
+        n = d["posts"]
+        rate = (lambda k: f"{d[k] / n * 100:.0f}%") if n else (lambda k: "n/a")
+        out.append(f"{STAGE_LABEL[st]}: {n} posts ({d['official']} official) · 2x {d['hit2']} ({rate('hit2')}) · "
+                   f"5x {d['hit5']} ({rate('hit5')}) · rugged {d['rugs']} · faded {d['fades']}")
+    return out
 
 
 def tracker_embed(records, now: float, late: bool = False) -> dict:
     s = tracker_stats(records, now)
     body = [f"Alerts: {s['alerts']} unique CAs in #signals",
             f"Hit 2x / 3x / 5x (peak, valid prints): {s['hit2']} / {s['hit3']} / {s['hit5']}",
-            f"Dead / invalidated: {s['dead']} / {s['invalidated']}",
-            f"Still open: {s['open']}",
+            f"Rugged: {s['rugs']}  •  Quiet fades: {s['fades']}  •  Still open: {s['open']}",
             "Median max drawdown: " + ("n/a" if s["median_dd"] is None else f"{s['median_dd']:.0f}%"),
             f"Price vs alert (median multiple): T+15 {mult(s['t15'])}  •  T+30 {mult(s['t30'])}  •  T+60 {mult(s['t60'])}",
-            "_Early-watch coins count from their promotion price._"]
+            "", "**By stage (all posts, incl. early-watch)**"] + stage_lines(records, now) + [
+            "_Early-watch coins count from their promotion price once promoted._"]
     title = f"24h tracker  •  {fmt_pt(now - 86400, True)} – {fmt_pt(now, True)}" + ("  (late)" if late else "")
     return {"title": title, "color": 0x5865F2, "description": "\n".join(body), "footer": footer()}
 
@@ -232,6 +278,7 @@ def leaderboard_embed(records, now: float, late: bool = False) -> dict:
     desc = ("**Best**\n" + "\n".join(row(r) for r in best)) if best else "No official signals in the last 24h."
     if worst:
         desc += "\n\n**Worst**\n" + "\n".join(row(r) for r in worst)
+    desc = desc[:3400] + "\n\n**Hit rate by stage (24h, all posts)**\n" + "\n".join(stage_lines(records, now))
     return {"title": "Daily leaderboard" + ("  (late)" if late else ""), "color": 0xF0A020, "description": desc[:4096], "footer": footer()}
 
 

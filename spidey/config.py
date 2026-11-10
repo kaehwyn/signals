@@ -28,7 +28,7 @@ class Config:
     early_min_score: int = 50
     signals_min_score: int = 60                 # NEW in #signals for migrated coins
     promote_score: int = 70
-    curve_signals_min_score: int = 80
+    curve_signals_min_score: int = 75           # Final Stretch -> official #signals
     curve_min_unique_buyers: int = 30
     score_cap_without_bundle_data: int = 70
     dev_sell_invalidates: bool = True
@@ -38,12 +38,13 @@ class Config:
     update_cooldown_minutes: float = 10
     dead_quiet_minutes: float = 180
     dead_quiet_drop_pct: float = 70
-    lp_pull_drop_pct: float = 90                # pool loses this much liquidity in lp_pull_window -> liquidity_pulled
-    lp_pull_window_minutes: float = 15
+    death_liq_drop_pct: float = 80              # liquidity down this much from its alert/peak level, at any time -> dead
+    death_price_drop_pct: float = 90            # price down this much from the alert or the peak -> dead
     pool_missing_minutes: float = 10            # primary pool gone from DexScreener this long = liquidity_pulled
     health_poll_stale_sec: float = 120
     health_port: int = 0                        # 0 = no HTTP health endpoint (set e.g. 8080 on a VPS)
-    heartbeat_minutes: float = 15
+    heartbeat_minutes: float = 60
+    feed_down_warn_s: float = 90               # pump.fun feed disconnected this long -> warn #spidey-status
     poll_gap_alert_minutes: float = 5
     tracker_every_hours: int = 2
     recap_start_hour: int = 8
@@ -60,9 +61,21 @@ class Config:
     confluence_lookback_hours: float = 3
     scanner_fail_warn_count: int = 10
     scanner_fail_warn_minutes: float = 10
+    # ---------------- stage filters (Axiom Pulse stages)
+    final_stretch_min_bonding_pct: float = 70   # curve coin at/above this bonding % = Final Stretch, below = New Pairs
+    np_min_age_min: float = 8                   # New Pairs: early-watch only, never official
+    np_min_mcap: float = 13000
+    np_min_buyers: int = 25
+    np_max_bundler_pct: float = 22
+    np_max_dev_pct: float = 4
+    np_max_top10_pct: float = 38
+    migrated_max_dev_pct: float = 3             # dev holding more than this at alert time blocks a migrated coin
+    migrated_young_minutes: float = 30          # first minutes after migration = high risk
+    migrated_young_min_holders: int = 450
+    migrated_young_max_top10_pct: float = 40
     # ---------------- monitoring cadence
     active_poll_s: float = 30
-    early_poll_s: float = 150
+    early_poll_s: float = 60
     safety_recheck_s: float = 300               # RugCheck / authority re-check for live coins
     dev_check_s: float = 60                     # dev wallet balance check for live coins (dev-sell invalidation)
     track_hours: float = 24                     # after this a live coin is archived (tracker keeps its outcome)
@@ -72,7 +85,7 @@ class Config:
     curve_min_age_min: float = 5
     curve_max_age_min: float = 120
     curve_min_mcap: float = 8000
-    curve_max_mcap: float = 65000
+    curve_max_mcap: float = 150000
     curve_min_buy_sell_5m: float = 1.1
     curve_max_drawdown: float = 0.30
     bundle_window_s: float = 1.5                # bought ~same block as the launch
@@ -101,7 +114,8 @@ class Config:
     blacklist_days: float = 30
     blacklist_max: int = 30000
     # ---------------- posting
-    post_endings: bool = False                  # INVALIDATED / DEAD posts (off: scanner + tracker only; still tracked)
+    post_endings: bool = True                   # DEAD / INVALIDATED post for rugs, in the channel of the original alert
+    post_fade_endings: bool = False             # also post quiet fades (no trades for hours); off = tracked silently
     post_postmortem: bool = False               # daily "why it died" post
     max_new_per_hour: int = 8
     # ---------------- files

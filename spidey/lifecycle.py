@@ -63,8 +63,7 @@ class Lifecycle:
 
     def _refresh_latest(self, rec: Record, obs: dict, now: float):
         rec.ticker, rec.name = obs.get("ticker") or rec.ticker, obs.get("name") or rec.name
-        rec.last_score, rec.last_mc_usd, rec.last_liq_usd = obs.get("score"), obs.get("mc"), obs.get("liq")
-        rec.last_polled_at = now
+        rec.last_score = obs.get("score")           # scanner view only: prices/liquidity/poll time belong to on_quote
         rec.dev_wallet = rec.dev_wallet or obs.get("dev_wallet")
         if obs.get("pool") and not rec.pool:
             rec.pool, rec.pool_dex = obs["pool"], obs.get("pool_dex")
@@ -82,7 +81,8 @@ class Lifecycle:
                      catalyst_tag=obs.get("catalyst_tag") or "UNCHECKED", catalyst_url=obs.get("catalyst_url"),
                      catalyst_summary=obs.get("catalyst_summary"), catalyst_first_try_at=now,
                      confluence=list(obs.get("confluence") or []), safety_snapshot=dict(obs.get("safety") or {}),
-                     dev_balance=obs.get("dev_balance"), dev_peak_balance=obs.get("dev_balance"))
+                     dev_balance=obs.get("dev_balance"), dev_peak_balance=obs.get("dev_balance"),
+                     stage=obs.get("stage"), bonding_pct=obs.get("bonding_pct"))
         self._set_baseline(rec, obs, now, official)
         rec.last_score = rec.last_posted_score = obs.get("score")
         rec.last_update_at, rec.last_posted_price, rec.last_polled_at = now, obs.get("price"), now
@@ -112,7 +112,7 @@ class Lifecycle:
         price = obs.get("price")
         rec.last_price = rec.last_valid_price = price
         rec.last_mc_usd = rec.last_valid_mc = obs.get("mc")
-        rec.last_liq_usd = obs.get("liq")
+        rec.last_liq_usd = rec.peak_liq_usd = obs.get("liq")
         rec.last_valid_at = rec.last_trade_at = now
         rec.peak_price, rec.peak_mc_usd, rec.peak_at = price, obs.get("mc"), now
         rec.max_drawdown_pct = 0.0
@@ -121,12 +121,14 @@ class Lifecycle:
             rec.first_alert_at, rec.first_alert_price = now, price
             rec.first_alert_price_sol = obs.get("price_sol")
             rec.first_alert_mc_usd, rec.first_alert_liq_usd = obs.get("mc"), obs.get("liq")
+            rec.official_stage, rec.official_bonding_pct = obs.get("stage"), obs.get("bonding_pct")
         else:
             rec.early_alert_at, rec.early_alert_price, rec.early_alert_mc_usd = now, price, obs.get("mc")
 
     def _promote(self, rec: Record, obs: dict, now: float) -> Optional[str]:
         """Early-watch -> #signals. Official baseline = promotion price (documented in the tracker footer)."""
-        before = (rec.official, rec.first_alert_at, rec.first_alert_price, rec.first_alert_mc_usd, rec.first_alert_liq_usd,
+        before = (rec.official_stage, rec.official_bonding_pct, rec.peak_liq_usd,
+                  rec.official, rec.first_alert_at, rec.first_alert_price, rec.first_alert_mc_usd, rec.first_alert_liq_usd,
                   rec.promoted_to_signals_at, rec.peak_price, rec.peak_mc_usd, rec.peak_at, rec.max_drawdown_pct,
                   dict(rec.price_at), rec.last_update_at, rec.last_posted_price, rec.last_posted_score)
 
@@ -136,7 +138,8 @@ class Lifecycle:
             rec.last_update_at, rec.last_posted_price, rec.last_posted_score = now, obs.get("price"), obs.get("score")
 
         def rollback():
-            (rec.official, rec.first_alert_at, rec.first_alert_price, rec.first_alert_mc_usd, rec.first_alert_liq_usd,
+            (rec.official_stage, rec.official_bonding_pct, rec.peak_liq_usd,
+             rec.official, rec.first_alert_at, rec.first_alert_price, rec.first_alert_mc_usd, rec.first_alert_liq_usd,
              rec.promoted_to_signals_at, rec.peak_price, rec.peak_mc_usd, rec.peak_at, rec.max_drawdown_pct,
              rec.price_at, rec.last_update_at, rec.last_posted_price, rec.last_posted_score) = before
 
@@ -250,7 +253,8 @@ class Lifecycle:
         if quote.get("pool") and rec.pool and quote["pool"] != rec.pool:
             if ((rec.pool_dex or "").lower() == "pumpfun" or rec.source == "curve") and not rec.migrated_at:
                 rec.pool, rec.pool_dex, rec.migrated_at = quote["pool"], quote.get("dex"), now
-                rec.liq_hist = []
+                rec.liq_hist, rec.peak_liq_usd = [], None
+                rec.safety_checked_at = None              # re-check the LP lock right away
             else:
                 return None                                       # not our pool: never price off a residual pool
         elif quote.get("pool") and not rec.pool:
@@ -260,10 +264,10 @@ class Lifecycle:
         on_curve = liq is None
         if not on_curve:
             rec.last_liq_usd = liq
-            hist = [h for h in rec.liq_hist if h[0] >= now - self.cfg.lp_pull_window_minutes * 60]
-            top = max([h[1] for h in hist], default=0)
+            top = rec.peak_liq_usd or (0 if rec.migrated_at else rec.first_alert_liq_usd) or 0   # highest since the alert, any time
             rec.liq_hist = (rec.liq_hist + [[now, liq]])[-40:]
-            pulled = top >= self.cfg.dead_liq_usd and liq <= top * (1 - self.cfg.lp_pull_drop_pct / 100)
+            rec.peak_liq_usd = max(top, liq)
+            pulled = top >= self.cfg.dead_liq_usd and liq <= top * (1 - self.cfg.death_liq_drop_pct / 100)
             if liq < self.cfg.dead_liq_usd or pulled:
                 rec.quote_state = "INVALID_POOL"
                 return self.end(rec, "DEAD", "liquidity_pulled",
@@ -276,6 +280,9 @@ class Lifecycle:
         rec.quote_state = "OK"
         # ---- valid print
         rec.last_valid_price, rec.last_valid_mc, rec.last_valid_at = price, mc, now
+        ref = max(rec.peak_price or 0, (rec.first_alert_price if rec.official else rec.early_alert_price) or 0)
+        if ref and price <= ref * (1 - self.cfg.death_price_drop_pct / 100):
+            return self.end(rec, "DEAD", "price_collapse", f"Price −{(1 - price / ref) * 100:.0f}% from its high since the alert.")
         if quote.get("traded", True):
             rec.last_trade_at = now
         if rec.peak_price is None or price > rec.peak_price:
@@ -333,12 +340,14 @@ class Lifecycle:
         def rollback():
             rec.status, rec.death_posted, rec.death_reason, rec.death_at, rec.invalidation_reason = before
 
-        if not self.cfg.post_endings:             # quiet mode: end it in the records, post nothing
+        silent = not self.cfg.post_endings or (reason == "no_trades" and not self.cfg.post_fade_endings)
+        if silent:                                # end it in the records, post nothing
             reserve()
             self.store.save()
             res = {"id": None}
-        else:
-            res = self._send("graveyard", M.ending_embed(typ, rec, reason, detail, now), None, reserve, rollback)
+        else:                                     # same channel as the original alert, with a link back to it
+            channel = "signals" if rec.official else "early-watch"
+            res = self._send(channel, M.ending_embed(typ, rec, reason, detail, now), None, reserve, rollback)
         if res and self.on_end:
             self.on_end(rec, reason, detail)
         return typ if res else None

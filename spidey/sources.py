@@ -32,6 +32,7 @@ BACKOFF_STEPS = (5, 15, 45, 90, 180)          # §6.3: 5s, 15s, 45s, 90s, cap 3 
 
 # every failed / rate-limited call is recorded here so the bot can warn #bot about flapping (§6.3)
 FAILURES = deque(maxlen=5000)
+FEED_SILENT_S = 120                           # pump.fun launches arrive every few seconds; silence this long = reconnect
 
 
 # ======================================================================= HTTP (rate limited per host)
@@ -422,7 +423,7 @@ class PumpFeed:
                 ws.settimeout(1)
                 self.connected, self.err, backoff_i = True, "", 0
                 print("[feed] connected")
-                last_ping = time.time()
+                last_ping = last_msg = time.time()
                 while not self.stop:
                     while True:
                         try:
@@ -445,7 +446,10 @@ class PumpFeed:
                     try:
                         raw = ws.recv()
                     except websocket.WebSocketTimeoutException:
+                        if time.time() - last_msg > FEED_SILENT_S:      # connected but nothing arriving = dead socket
+                            raise ConnectionError(f"feed silent for {FEED_SILENT_S}s")
                         continue
+                    last_msg = time.time()
                     if not raw:
                         break
                     try:

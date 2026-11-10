@@ -5,10 +5,11 @@ What it posts (every coin post starts with TYPE • $TICKER • score, then the 
   #signals      NEW (once per CA, ever), UPDATE / BREAKOUT (only on a material change, 10-min cooldown),
                 2-hourly 24h tracker
   #wins         2X / 3X / 5X cards (once per level, from valid prints only)
-  (INVALIDATED / DEAD are tracked silently by default; set post_endings / post_postmortem to post them)
+                DEAD / INVALIDATED for rugs is posted once in the channel of the original alert, with a link to it
+                (quiet fades are tracked silently; post_fade_endings / post_postmortem turn those posts on)
   #early-watch  lower-bar feed with a NOT A BUY CALL banner; promoted to #signals when it qualifies
   #recap        hourly recap 8 AM–10 PM PT, daily leaderboard 9 PM PT
-  #spidey-status  boot/recovery message, 15-min heartbeat, poll-gap and flapping warnings
+  #spidey-status  boot/recovery message, hourly heartbeat, feed-down / poll-gap / flapping warnings
 A channel without its own webhook falls back to #signals (wins/graveyard fall back to the tracker webhook first;
 status messages only go to the log without a status webhook).
 
@@ -18,7 +19,7 @@ Every setting lives in spidey/config.py and can be changed with config.json or S
 
 Webhooks (env): DISCORD_WEBHOOK_URL (#signals, required), DISCORD_WINS_WEBHOOK_URL, DISCORD_EARLY_WEBHOOK_URL,
                 DISCORD_RECAP_WEBHOOK_URL, DISCORD_STATUS_WEBHOOK_URL (heartbeat channel),
-                DISCORD_GRAVEYARD_WEBHOOK_URL (only used if post_endings is turned on),
+                DISCORD_GRAVEYARD_WEBHOOK_URL (only for the optional daily why-it-died post),
                 DISCORD_TRACKER_WEBHOOK_URL (old setting: used for wins + graveyard if those aren't set)
 Optional:       SOLANA_RPC_URL (free Helius/QuickNode key = faster, fewer failed holder checks)
 
@@ -57,7 +58,7 @@ from spidey.sources import (FAILURES, LIMITERS, PUMP_SUPPLY_RAW, STABLES, PumpFe
                             largest_holders, mint_info, num, token_balance)
 from spidey.store import PT, Record, Store, fmt_pt, norm_ca
 
-VERSION = "SPIDEY-7.0"
+VERSION = "SPIDEY-8.0"
 WEBHOOKS = {
     "signals": os.getenv("DISCORD_WEBHOOK_URL"),
     "wins": os.getenv("DISCORD_WINS_WEBHOOK_URL") or os.getenv("DISCORD_TRACKER_WEBHOOK_URL"),
@@ -148,6 +149,15 @@ def pfmt(x, d=1):
 
 
 # ======================================================================= curve coins (live feed)
+CURVE_REAL_TOKENS = 793_100_000          # tokens sold on the pump.fun curve before it graduates
+CURVE_VIRTUAL_OFFSET = 279_900_000       # virtual token reserve left at graduation
+
+
+def curve_stage(bonding_pct: Optional[float], cfg: Config) -> str:
+    """Axiom Pulse stage of a curve coin. Unknown progress counts as New Pairs (the stricter lane)."""
+    return "final_stretch" if (bonding_pct is not None and bonding_pct >= cfg.final_stretch_min_bonding_pct) else "new_pairs"
+
+
 @dataclass
 class Launch:
     mint: str
@@ -174,6 +184,14 @@ class Launch:
     last_deep: float = 0.0
     chain: dict = field(default_factory=dict)          # last on-chain check
     chain_t: float = 0.0
+    v_tokens: Optional[float] = None                   # virtual tokens left in the curve (live feed)
+
+    def bonding_pct(self) -> Optional[float]:
+        """Bonding-curve progress 0-100: live feed first, else the last RPC curve read. None = unknown."""
+        if self.v_tokens:
+            return max(0.0, min(100.0, (1 - (self.v_tokens - CURVE_VIRTUAL_OFFSET) / CURVE_REAL_TOKENS) * 100))
+        cs = (self.chain or {}).get("curve")
+        return cs["progress"] * 100 if cs and cs.get("progress") is not None else None
 
     def on_trade(self, t: float, m: dict) -> Optional[float]:
         """Returns tokens sold if this trade was a DEV SELL, else None."""
@@ -184,6 +202,9 @@ class Launch:
             self.mcap_sol, self.peak_sol = mc, max(self.peak_sol, mc)
             if not self.hist or t - self.hist[-1][0] >= 5:
                 self.hist.append((t, mc))
+        vt = num(m.get("vTokensInBondingCurve"))
+        if vt:
+            self.v_tokens = vt
         bal = num(m.get("newTokenBalance"))
         if who and bal is not None:
             self.balances[who] = bal
@@ -302,11 +323,13 @@ def curve_observation(l: Launch, now: float, sol_usd: float, cfg: Config, blackl
     momentum = (cfg.curve_min_mcap <= mc <= cfg.curve_max_mcap and l.peak_sol and l.mcap_sol >= l.peak_sol * (1 - cfg.curve_max_drawdown)
                 and b5 >= s5 * cfg.curve_min_buy_sell_5m and b5 > 0 and (now - l.t0) / 60 >= cfg.curve_min_age_min)
     breakout = bool(g5 is not None and g5 >= 30 and b5 >= 2 * s5 and momentum)
+    bp = l.bonding_pct()
     reasons = [f"{len(l.buyers)} unique buyers ({uniq * 100:.0f}% unique)" if uniq else None,
                f"MC {g5:+.0f}% in 5m" if g5 is not None else None,
                f"5m flow {b5:.1f} SOL in / {s5:.1f} out",
-               f"curve {cs['progress'] * 100:.0f}% · reserve {cs['reserve_sol']:.1f} SOL" if cs else None]
-    return {"ca": l.mint, "ticker": l.symbol, "name": l.name, "source": "curve", "price": mc / 1e9 if mc else None,
+               f"bonding {bp:.0f}%" + (f" · reserve {cs['reserve_sol']:.1f} SOL" if cs else "") if bp is not None else None]
+    return {"stage": curve_stage(bp, cfg), "bonding_pct": bp, "buy_sell_5m": (b5 / s5) if s5 else (99.0 if b5 else 0.0),
+            "ca": l.mint, "ticker": l.symbol, "name": l.name, "source": "curve", "price": mc / 1e9 if mc else None,
             "price_sol": l.mcap_sol / 1e9, "mc": mc, "liq": None, "pool": l.curve, "pool_dex": "pumpfun", "curve_key": l.curve,
             "dev_wallet": l.creator, "dev_balance": l.balances.get(l.creator, 0.0) * 1e6, "metrics": metrics, "checks": checks,
             "reasons": [r for r in reasons if r], "hard_fails": hard, "gate_fails": gates, "raw_score": score,
@@ -353,10 +376,6 @@ def pair_snap(p: dict, t: float) -> dict:
             "chg_m5": num(chg.get("m5")), "chg_h1": num(chg.get("h1"))}
 
 
-def pump_migrated(mint: str, dex: str) -> bool:
-    return mint.endswith("pump") and "pumpswap" in (dex or "").lower()
-
-
 def breakout_trigger(p: Pair, now: float, cfg: Config) -> list:
     """Existing breakout trigger reasons ([] = not breaking out)."""
     s = p.snap
@@ -376,8 +395,7 @@ def dex_observation(p: Pair, now: float, cfg: Config, blacklisted: bool, launch_
     """§5.1 hard filters + score for a coin trading in a real pool."""
     s, rc, mi, hs = p.snap, p.rc or {}, p.chain.get("mint"), p.chain.get("holders") or {}
     mc, liq = s.get("mcap"), s.get("liq")
-    burned = pump_migrated(p.mint, p.dex)
-    lp = 100.0 if burned else rc.get("lp_locked")
+    lp = rc.get("lp_locked")                                        # RugCheck's real number; never assumed
     lp_eff = lp if lp is not None else 0.0                          # unknown lock = 0 (§5.1)
     holders = rc.get("holders")
     top10 = rc.get("top10") if rc.get("top10") is not None else hs.get("top10")
@@ -386,7 +404,7 @@ def dex_observation(p: Pair, now: float, cfg: Config, blacklisted: bool, launch_
     li = launch_info or {}
     bundler, sniper = li.get("bundler"), li.get("sniper")
     revoked = mi.get("revoked") if mi else rc.get("revoked")
-    dangers = [d for d in rc.get("dangers") or [] if not (burned and "lp" in d.lower() and "unlock" in d.lower())]
+    dangers = list(rc.get("dangers") or [])
     age_s = now - p.created_ms / 1000 if p.created_ms else None
     metrics = {"age_s": age_s, "vol_m5": s.get("vol_m5"), "vol_h1": s.get("vol_h1"), "chg_m5": s.get("chg_m5"), "chg_h1": s.get("chg_h1"),
                "buys": s.get("buys_h1"), "sells": s.get("sells_h1"), "buyers": li.get("buyers"), "holders": holders, "top10": top10,
@@ -412,7 +430,7 @@ def dex_observation(p: Pair, now: float, cfg: Config, blacklisted: bool, launch_
         gates.append("LP lock unknown" if lp is None else f"LP locked {lp:.0f}%")
     if top10 is None or top10 > cfg.max_top10_pct:
         gates.append("top 10 n/a" if top10 is None else f"top 10 {top10:.0f}%")
-    if dev is not None and dev > cfg.max_dev_holdings_pct:
+    if dev is not None and dev > cfg.migrated_max_dev_pct:
         gates.append(f"dev holds {dev:.1f}%")
     if bundler is not None and bundler > cfg.max_bundler_pct:
         gates.append(f"bundlers {bundler:.0f}%")
@@ -424,12 +442,12 @@ def dex_observation(p: Pair, now: float, cfg: Config, blacklisted: bool, launch_
                    ("RugCheck: " + ", ".join(dangers[:2]) if dangers else "RugCheck n/a")),
               line(revoked, "Mint & freeze revoked"),
               line((not mi.get("bad_ext")) if mi else None, "No risky token settings"),
-              line(lp_eff >= cfg.min_lp_locked_or_burned_pct, "LP burned (pump.fun migration)" if burned else
-                   (f"LP locked {lp:.0f}%" if lp is not None else "LP lock unknown (counted as 0%)")),
+              line(lp_eff >= cfg.min_lp_locked_or_burned_pct,
+                   f"LP locked/burned {lp:.0f}% (RugCheck)" if lp is not None else "LP lock unknown (counted as 0%)"),
               line(None if liq is None else liq >= cfg.min_liquidity_usd, f"Liquidity {M.usd(liq)}"),
               line(None if holders is None else holders >= cfg.min_holders, f"{holders} holders" if holders is not None else "Holders n/a"),
               line(None if top10 is None else top10 <= cfg.max_top10_pct, f"Top 10 {pfmt(top10)}" + (" (30–40% warn)" if metrics["top10_warn"] else "")),
-              line(True if dev is None else dev <= cfg.max_dev_holdings_pct, f"Dev holds {pfmt(dev)}" if dev is not None else "Dev n/a"),
+              line(True if dev is None else dev <= cfg.migrated_max_dev_pct, f"Dev holds {pfmt(dev)}" if dev is not None else "Dev n/a"),
               line(True if bundler is None else bundler <= cfg.max_bundler_pct, f"Bundlers {pfmt(bundler)}" if bundler is not None else "Bundlers n/a (score capped at 70)"),
               line(True if sniper is None else sniper <= cfg.max_sniper_pct, f"Snipers {pfmt(sniper)}" if sniper is not None else "Snipers n/a"),
               line(not blacklisted, "Dev not blacklisted")]
@@ -444,7 +462,8 @@ def dex_observation(p: Pair, now: float, cfg: Config, blacklisted: bool, launch_
     reasons = trig or [f"liquidity {liq / mc * 100:.0f}% of MC" if (liq and mc) else None,
                        f"1h volume {vol / mc:.2f}x MC" if mc else None, f"buys/sells {b}/{sl} in 1h",
                        f"price {M.pct(s.get('chg_m5'))} in 5m, {M.pct(h1)} in 1h"]
-    return {"ca": p.mint, "ticker": p.symbol, "name": p.name, "source": "dex", "price": s.get("price"), "mc": mc, "liq": liq,
+    return {"stage": "migrated", "bonding_pct": None, "pool_age_min": age_s / 60 if age_s is not None else None, "lp_locked": lp,
+            "ca": p.mint, "ticker": p.symbol, "name": p.name, "source": "dex", "price": s.get("price"), "mc": mc, "liq": liq,
             "pool": p.pair, "pool_dex": p.dex, "dev_wallet": p.creator or None, "metrics": metrics, "checks": checks,
             "reasons": [r for r in reasons if r], "hard_fails": hard, "gate_fails": gates, "raw_score": score,
             "bundle_known": bundler is not None and sniper is not None, "momentum": b > sl and (h1 or 0) > 0,
@@ -474,20 +493,77 @@ def finalize(obs: dict, cfg: Config, catalyst_tag: str, confluence: list, existi
     obs["score"] = score
     obs["score_parts"] = " ".join(parts) + f" = {score}" if len(parts) > 1 else None
     obs["catalyst_tag"], obs["confluence"] = catalyst_tag, confluence
-    safe = not obs["hard_fails"]
-    clean = safe and not obs["gate_fails"]
-    if obs["source"] == "curve":
-        buyers = obs["metrics"].get("buyers") or 0
-        signals = clean and obs["momentum"] and score >= cfg.curve_signals_min_score and buyers >= cfg.curve_min_unique_buyers \
-            and (obs["metrics"].get("holders") or 0) >= cfg.min_holders
-        early = safe and obs["momentum"] and score >= cfg.early_min_score and (obs["metrics"].get("holders") or 0) >= cfg.early_min_holders
-    else:
-        signals = clean and obs["momentum"] and score >= cfg.signals_min_score and (obs["breakout"] or score >= cfg.promote_score)
-        liq, holders = obs.get("liq") or 0, obs["metrics"].get("holders") or 0
-        early = safe and obs["momentum"] and score >= cfg.early_min_score and liq >= cfg.early_min_liquidity_usd and holders >= cfg.early_min_holders
-    obs["qualifies_signals"], obs["qualifies_early"] = bool(signals), bool(early) and not signals
-    obs["qualifies_promotion"] = bool(signals) and score >= (cfg.curve_signals_min_score if obs["source"] == "curve" else cfg.promote_score)
+    off_fails, early_fails = stage_gates(obs, cfg)
+    obs["official_fails"], obs["early_fails"] = off_fails, early_fails
+    signals, early = not off_fails, not early_fails
+    obs["qualifies_signals"], obs["qualifies_early"] = signals, early and not signals
+    obs["qualifies_promotion"] = signals and (obs["stage"] != "migrated" or score >= cfg.promote_score)
     return obs
+
+
+def stage_gates(obs: dict, cfg: Config) -> tuple:
+    """(why it can't be an official #signals post, why it can't be an #early-watch post). [] = allowed.
+    Each Axiom Pulse stage has its own rules; needs obs["score"] (set by finalize)."""
+    m, score, stage = obs["metrics"], obs["score"], obs["stage"]
+    hard, gates = list(obs["hard_fails"]), list(obs["gate_fails"])
+    top10, dev, holders, buyers = m.get("top10"), m.get("dev"), m.get("holders") or 0, m.get("buyers") or 0
+    base = hard + ([] if obs["momentum"] else ["no momentum"])
+    top10_fail = ["top 10 n/a"] if top10 is None else ([f"top 10 {top10:.0f}%"] if top10 > cfg.max_top10_pct else [])
+    if stage == "new_pairs":
+        official = ["New Pairs stage: early-watch only"]
+        early = base + ([f"score {score}"] if score < cfg.early_min_score else [])
+        if (m.get("age_s") or 0) / 60 < cfg.np_min_age_min:
+            early.append("too new")
+        if (obs.get("mc") or 0) < cfg.np_min_mcap:
+            early.append(f"MC {M.usd(obs.get('mc'))}")
+        if buyers < cfg.np_min_buyers:
+            early.append(f"{buyers} buyers")
+        if not obs.get("bundle_known") or m.get("bundler") is None:
+            early.append("bundler n/a")
+        elif m["bundler"] > cfg.np_max_bundler_pct:
+            early.append(f"bundlers {m['bundler']:.0f}%")
+        if dev is not None and dev > cfg.np_max_dev_pct:
+            early.append(f"dev holds {dev:.1f}%")
+        if top10 is None or top10 > cfg.np_max_top10_pct:
+            early.append("top 10 n/a" if top10 is None else f"top 10 {top10:.0f}%")
+        return official, early
+    if stage == "final_stretch":
+        early = base + top10_fail + ([f"score {score}"] if score < cfg.early_min_score else []) \
+            + ([f"{holders} holders"] if holders < cfg.early_min_holders else [])
+        official = base + gates
+        if (obs.get("bonding_pct") or 0) < cfg.final_stretch_min_bonding_pct:
+            official.append("bonding below Final Stretch")
+        if (obs.get("buy_sell_5m") or 0) < cfg.curve_min_buy_sell_5m:
+            official.append("buy/sell below 1.1")
+        if buyers < cfg.curve_min_unique_buyers:
+            official.append(f"{buyers} buyers")
+        if holders < cfg.min_holders:
+            official.append(f"{holders} holders")
+        if score < cfg.curve_signals_min_score:
+            official.append(f"score {score}")
+        return official, early
+    # ---- migrated
+    lp, liq = obs.get("lp_locked"), obs.get("liq") or 0
+    dev_fail = [f"dev holds {dev:.1f}%"] if (dev is not None and dev > cfg.migrated_max_dev_pct) else []
+    early = base + top10_fail + dev_fail + ([f"score {score}"] if score < cfg.early_min_score else [])
+    if liq < cfg.early_min_liquidity_usd:
+        early.append(f"liquidity {M.usd(liq)}")
+    if holders < cfg.early_min_holders:
+        early.append(f"{holders} holders")
+    if lp is not None and lp < cfg.min_lp_locked_or_burned_pct:
+        early.append(f"LP locked {lp:.0f}%")                          # a known-unlocked pool never posts anywhere
+    official = base + gates                                           # gates: liquidity, real LP lock number, top10, dev, holders
+    if score < cfg.signals_min_score or not (obs["breakout"] or score >= cfg.promote_score):
+        official.append(f"score {score}")
+    if not obs.get("bundle_known") and score <= cfg.score_cap_without_bundle_data:
+        official.append("bundler n/a (needs a score above the cap)")
+    age = obs.get("pool_age_min")
+    if age is None or age < cfg.migrated_young_minutes:               # first minutes after migration: high risk
+        if holders < cfg.migrated_young_min_holders:
+            official.append(f"{holders} holders < {cfg.migrated_young_min_holders} in the first {cfg.migrated_young_minutes:.0f}m")
+        if top10 is None or top10 > cfg.migrated_young_max_top10_pct:
+            official.append("top 10 too high for a fresh migration")
+    return official, early
 
 
 # ======================================================================= deep checks (worker threads)
@@ -540,6 +616,7 @@ class Bot:
         self.last_tick = clock()
         self.last_poll_ok = self.store.meta.get("last_poll_ok")
         self.gap_warned = False
+        self.feed_down_since, self.feed_warned = None, False
         self.flap_warned_at = 0.0
         self.creator_times = defaultdict(deque, {k: deque(v) for k, v in self.store.creator_times.items()})
         for r in self.store.records.values():                # resume UPDATE/BREAKOUT checks for live coins after a restart
@@ -622,6 +699,7 @@ class Bot:
                 mc = num(m.get("marketCapSol")) or 0.0
                 l.mcap_sol = l.peak_sol = l.mc0 = mc
                 l.hist.append((t, mc))
+                l.v_tokens = num(m.get("vTokensInBondingCurve"))
                 init = num(m.get("initialBuy")) or 0.0
                 if creator and init > 0:
                     l.balances[creator] = l.dev_max = init
@@ -844,10 +922,9 @@ class Bot:
             self.submit(obs["ca"], "catalyst_new", lambda o=obs: (o, check_catalyst(o.get("name") or "", o.get("ticker") or "")))
             return
         if rec is None:
-            if obs["hard_fails"]:
-                self.block(obs["hard_fails"][0])
-            elif obs["gate_fails"]:
-                self.block(obs["gate_fails"][0])
+            why = obs["early_fails"] or obs["official_fails"]
+            if why:
+                self.block(f"{M.STAGE_LABEL[obs['stage']]}: {why[0]}")
             return
         self.post_obs(obs, rec, now)
 
@@ -979,12 +1056,12 @@ class Bot:
             if rc.get("rugged"):
                 self.lc.kill(ca, "safety_fail", "RugCheck marks this token as rugged.")
                 return
-            burned = pump_migrated(ca, rec.pool_dex or "")
             lp = rc.get("lp_locked")
-            if not burned and lp is not None and lp < self.cfg.min_lp_locked_or_burned_pct and \
-                    (rec.safety_snapshot.get("lp") or 0) >= self.cfg.min_lp_locked_or_burned_pct:
-                self.lc.invalidate(ca, "lp_unlocked", f"LP lock fell to {lp:.0f}%.")
+            if lp is not None and lp < self.cfg.min_lp_locked_or_burned_pct and (rec.migrated_at or rec.source == "dex"):
+                self.lc.invalidate(ca, "lp_unlocked", f"RugCheck shows LP only {lp:.0f}% locked/burned.")
                 return
+            if lp is not None:
+                rec.safety_snapshot["lp"] = lp
         if bal is not None and rec.dev_wallet and self.cfg.dev_sell_invalidates:
             prev = rec.dev_balance
             supply = (mi or {}).get("supply") or PUMP_SUPPLY_RAW
@@ -1002,7 +1079,24 @@ class Bot:
             self.gap_warned = False
             self.to_bot("Market polling recovered.")
 
+    def feed_watch(self, now):
+        """The pump.fun feed reconnects itself with backoff; say so in #spidey-status instead of going DEX-only silently."""
+        if not self.feed:
+            return
+        if self.feed.connected:
+            if self.feed_warned:
+                self.to_bot(f"✅ pump.fun feed reconnected after {M.dur(now - (self.feed_down_since or now))}. "
+                            "New Pairs / Final Stretch scanning is back.")
+            self.feed_down_since, self.feed_warned = None, False
+            return
+        self.feed_down_since = self.feed_down_since or now
+        if not self.feed_warned and now - self.feed_down_since >= self.cfg.feed_down_warn_s:
+            self.feed_warned = True
+            self.to_bot(f"⚠️ pump.fun live feed is DOWN ({self.feed.status()}). Reconnecting with backoff. Until it is back only "
+                        "migrated coins are scanned (no New Pairs / Final Stretch) and curve dev-sells are not seen live.")
+
     def ops(self, now):
+        self.feed_watch(now)
         # poll gap
         since = self.last_poll_ok or self.started                 # never polled yet counts from boot
         if now - since > self.cfg.poll_gap_alert_minutes * 60 and not self.gap_warned:
@@ -1022,7 +1116,11 @@ class Bot:
             s = M.tracker_stats(self.store.records.values(), now)
             active = sum(1 for r in self.store.records.values() if r.status == "active" and r.official)
             poll = f"{now - self.last_poll_ok:.0f}s ago" if self.last_poll_ok else "n/a"
-            txt = f"ok • poll {poll} • active {active} • tracker 24h alerts {s['alerts']}"
+            st = M.stage_stats(self.store.records.values(), now)
+            txt = (f"ok • poll {poll} • active {active} • tracker 24h alerts {s['alerts']}\n"
+                   f"feed: {self.feed.status() if self.feed else 'off'} • launches seen {self.counts['launches']} • "
+                   f"watching {len(self.launches)} curve + {len(self.pairs)} pools\n"
+                   "posts 24h by stage: " + " • ".join(f"{M.STAGE_LABEL[k]} {v['posts']}" for k, v in st.items()))
             if gap and gap > self.cfg.heartbeat_minutes * 60 * 1.5:
                 txt += f" • recovered after {M.dur(gap)}"
             self.poster.send("status", {"title": "heartbeat", "description": txt, "color": 0x3BA55D})
@@ -1189,7 +1287,7 @@ def send_test(poster: Poster):
            "score": 79, "score_parts": "71 +8 catalyst = 79", "reasons": ["liquidity 29% of MC", "1h volume 1.57x MC"],
            "metrics": {"age_s": 2500, "vol_m5": 9000, "vol_h1": 93_641, "chg_m5": 12, "chg_h1": 64, "buys": 410, "sells": 180,
                        "buyers": 233, "holders": 612, "top10": 18.5, "dev": 0.0, "insiders": 0.0, "bundler": 4.0, "sniper": 9.0},
-           "checks": ["✅ RugCheck clean", "✅ Mint & freeze revoked", "✅ LP burned (pump.fun migration)"],
+           "stage": "migrated", "checks": ["✅ RugCheck clean", "✅ Mint & freeze revoked", "✅ LP locked/burned 100% (RugCheck)"],
            "catalyst_tag": "REAL_CATALYST", "catalyst_url": "https://example.com/news", "catalyst_summary": "Example: event coverage (test)"}
     rec = Record(ca=ca, ticker="SAMPLE", official=True, first_alert_at=now - 3000, first_alert_price=6e-5, first_alert_mc_usd=59_678,
                  peak_price=1.5e-4, peak_mc_usd=150_000, peak_at=now - 600, last_valid_price=1.3e-4, last_valid_mc=130_000,
