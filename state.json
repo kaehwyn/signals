@@ -1,333 +1,1080 @@
 {
- "version": "SCANNER-6.0",
- "saved": "2026-11-10T18:51:04Z",
- "blacklist": {
-  "Bt2BUeP1rjmSGqahhnA6VWFFpghDWXcMYdJyv1wtHhFV": [
-   1794334260.5570064,
-   "old"
-  ],
-  "Gh8ubiF4YrgdJxDfBUi1jcVqYfeQigzbuRgDTRhLxWL7": [
-   1794334292.6561313,
-   "HCAT: liquidity drained ($14.0K -> $1) in 15m"
-  ],
-  "M3RgFBTSpXLi4QhhhowEhxe6hzQCjHVL1zX7RCJB3tk": [
-   1794334323.0617182,
-   "VEIL: liquidity drained ($16.2K -> $1) in 15m"
-  ],
-  "7JKWwt81UnKMq6ef4ELNBDSeJviki97FxpHLRddMaUJH": [
-   1794334475.9365444,
-   "USHP: liquidity drained ($20.4K -> $0) in 15m"
-  ],
-  "7G7zpPRM7FHKDsPakSGGRM3AfHJ2ExP877BEEtYW7UnW": [
-   1794334751.213773,
-   "CHI: liquidity drained ($20.1K -> $6) in 15m"
-  ],
-  "Gyu95co9kgs5mygvnkiFN9PmnCn6Hg86KBVk4b3DfVp3": [
-   1794334996.9487758,
-   "PPP: liquidity drained ($29.8K -> $0) in 15m"
-  ],
-  "DLkVFKDmNzqwGukEc8uRWSn6aiAAPXaUJknXB6R7tWL9": [
-   1794335027.4260805,
-   "BoxingCat: liquidity drained ($34.5K -> $0) in 15m"
-  ],
-  "J1ejCsVm81RnoEnxgDYbvC1WKao2sWGYvhRFyykJBEgq": [
-   1794335335.9226286,
-   "Popo: liquidity drained ($30.8K -> $0) in 15m"
-  ],
-  "2RxibNJmMnu5X4PJVb6yTMt7HoXwpL2Nee53ouYu8SMM": [
-   1794335364.8246293,
-   "SPCX: liquidity drained ($62.7K -> $0) in 15m"
-  ],
-  "GnRBM5hsV9cpgkUc3pGvCLRmwtCRC8Z3bU3RLJ47KTpi": [
-   1794335578.5118914,
-   "McCoin: liquidity drained ($24.0K -> $2) in 15m"
-  ],
-  "CqEeVTmGYfboM2PgoWFLEsiUk3VWHmr1GSSiDxwApcjX": [
-   1794335885.093123,
-   "ACTT: liquidity drained ($63.1K -> $7) in 15m"
-  ],
-  "6TKGA723Rwna5r4G3sbHV1yTfDL1A6S5agAoyD38k8zs": [
-   1794335977.5010252,
-   "PIRATE: liquidity drained ($32.0K -> $0) in 15m"
-  ],
-  "26bWsjWyfKGY4bfProStmXhd9oPa9TTfjjAppKHRPT1Z": [
-   1794336068.968151,
-   "AICoin: liquidity drained ($20.6K -> $0) in 15m"
-  ],
-  "2ekvogH7UGLZuCqq2hzbersH8r2iHRsA7pLUgEiSMnkZ": [
-   1794336191.251473,
-   "ZDOG: liquidity drained ($12.6K -> $0) in 15m"
-  ],
-  "2ysZT8SvuTXmhwEvXjYgWNtX17LhV7TYJggD58xozFWa": [
-   1794336328.3677273,
-   "GTA 6 Coin: liquidity drained ($25.6K -> $1.5K) in 15m"
-  ],
-  "4hNTh2eu3fg5b7UWNm23w2UbzGhu1mtnQQiyPD8FSDci": [
-   1794336497.8405054,
-   "CAT: liquidity drained ($31.4K -> $0) in 15m"
-  ]
- },
- "creator_times": {
-  "Ee73PSGqxiDbxD5AF4DjhJMFVJMVwM46eb7SJtm4AvfV": [
-   1794334268.1107123,
-   1794334286.8921926,
-   1794334304.6509843,
-   1794334335.2103293,
-   1794334337.5953243,
-   1794334367.2939544,
-   1794334368.9036841,
-   1794334384.537204,
-   1794334390.4271095,
-   1794334431.9701338,
-   1794334440.1280692,
-   1794334441.1650932,
-   1794334441.863098,
-   1794334446.8990026,
-   1794334449.1907115,
-   1794334455.1029263,
-   1794334475.1800032,
-   1794334520.313782,
-   1794334569.2225223,
-   1794334610.7848272,
-   1794334640.3792984,
-   1794334726.3166292,
-   1794334738.3902447,
-   1794334749.2012756,
-   1794334792.5447636,
-   1794334841.0556717,
-   1794334854.223611,
-   1794334896.551977,
-   1794334906.2208037,
-   1794334911.7480192,
-   1794334926.8919642,
-   1794334940.8554924,
-   1794334942.176713,
-   1794334944.6058073,
-   1794334979.411016,
-   1794335021.395964,
-   1794335052.7707093,
-   1794335058.7085161,
-   1794335073.8541567,
-   1794335106.2618127,
-   1794335119.8716292,
-   1794335151.4457994
-  ],
-  "9kgcQ1Zfi3VTqs9zwx2VXgkhW6PVizSiNJNPwY8aZLwn": [
-   1794334286.503218,
-   1794335076.2327676,
-   1794336546.8961475,
-   1794336595.150354,
-   1794336656.8637605
-  ],
-  "G9i5tQhn6FT3qd2TxmfY5xkcdyZdxUZy6n2DjsJzEaeA": [
-   1794334305.722006,
-   1794334408.6550546,
-   1794335172.0979803
-  ],
-  "39WgDrVwJ8irBQuvhJ296ZSUs6Wsw1H9rtxb88ZbuC59": [
-   1794334315.4715297,
-   1794334390.984643,
-   1794334594.1322203,
-   1794334789.1521933,
-   1794335163.9160204,
-   1794336606.1272032
-  ],
-  "EXjWkYKcomQoY2viwE66EoaRNGugAV1TGXcFGiDECewT": [
-   1794334327.513695,
-   1794334422.8359728
-  ],
-  "AV7PjXHL5JXZ1YoYRoN9Dsstg1x2UciBupMCXcJP8gUz": [
-   1794334334.8667011,
-   1794334380.1346836,
-   1794334489.136677,
-   1794334532.7476609
-  ],
-  "BqfKQdVgGp4pTBjZv6gV2NqeXJVhm5PjV4kLULFHtbF1": [
-   1794334338.7877536,
-   1794334418.000544,
-   1794334439.612331
-  ],
-  "GqF3nhzSStdGHuM4erGDGzA6e8heDcN1Nc3rUkNCZ5a2": [
-   1794334339.2991102,
-   1794334480.954848,
-   1794336622.6703103
-  ],
-  "Fod111HrAHNLCRCkoSSD3NVaepitTMMdz4qXVySZGVez": [
-   1794334379.007139,
-   1794334634.2381005
-  ],
-  "6TYLJEHKxTmojWR77aK1LbwBL8FLtRY4nEUoeP3MVAcx": [
-   1794334379.2753992,
-   1794334506.2058883,
-   1794334570.5225012,
-   1794334655.225971,
-   1794334743.5460908,
-   1794334793.1759055
-  ],
-  "3oLmsQ1mXbM6uk5MkKoB4K3zFdTVwMHGELRZ4Md8czh3": [
-   1794334414.4258225,
-   1794334464.7107904,
-   1794334546.9125874,
-   1794334751.1960645,
-   1794334792.2151864,
-   1794334908.4138753,
-   1794334971.0543916,
-   1794335053.0502765,
-   1794336519.7596686,
-   1794336575.2611108
-  ],
-  "DmX3SzYAotH1oFNvjRe3UeX7ScDMxFCzDfi2ppV7mB1o": [
-   1794334662.2973583,
-   1794334662.5568788,
-   1794334662.8142996,
-   1794334664.9417515,
-   1794334665.208103,
-   1794334665.4630034,
-   1794334684.4254467,
-   1794334684.6812572,
-   1794334684.943033,
-   1794334690.6690304,
-   1794334690.9258256,
-   1794334691.1884646,
-   1794334692.2472754,
-   1794334692.5178626,
-   1794334692.774204,
-   1794334694.4182594,
-   1794334694.6688507,
-   1794334694.9262984,
-   1794334779.7233484,
-   1794334779.9843705,
-   1794334780.2557435,
-   1794334781.4236586,
-   1794334781.6888704,
-   1794334789.9119577,
-   1794334790.1640525,
-   1794334790.449878,
-   1794334792.8310802,
-   1794334793.4417644,
-   1794334793.6778238,
-   1794335025.666069,
-   1794335025.9116397,
-   1794335026.1567879,
-   1794335028.8214428,
-   1794335029.062416,
-   1794335029.3641758,
-   1794335039.4564066,
-   1794335039.7090907,
-   1794335039.9507384,
-   1794335042.6558533,
-   1794335042.9024737,
-   1794335043.154251,
-   1794335045.119505,
-   1794335045.3536837,
-   1794335045.5961106,
-   1794335070.8504071,
-   1794335071.0973015,
-   1794335071.3459132,
-   1794335101.4847863,
-   1794335101.7332017,
-   1794335101.9671116,
-   1794335105.0776498,
-   1794335105.3250263,
-   1794335105.5864353,
-   1794335108.2999382,
-   1794335108.557832,
-   1794335108.7948637,
-   1794335109.7365353,
-   1794335109.9882495,
-   1794335110.49689,
-   1794335112.3548877,
-   1794335112.5975473,
-   1794335112.8572388
-  ],
-  "EsnBhGqddNz6h6LyyvHtGHchARWrkW7XiRTfoooPBfyP": [
-   1794334695.567955,
-   1794335171.8206854
-  ],
-  "GVhVwYmo5f4Rrg2XSQZiZHvh26UhV69nmFa9GFCZFy6B": [
-   1794334756.4210694,
-   1794334924.8747091
-  ],
-  "7iWESNk1yQpLPQNKJ6zQS7yhwKCJ3JsN7KCwLf88sS2X": [
-   1794334773.94848,
-   1794334947.2838776,
-   1794335033.8484445,
-   1794335153.120024
-  ],
-  "5u27m9oUoJUYYe1cxMgXuVrzaGcMBXPvfXRu6rp3oud9": [
-   1794334958.1362941,
-   1794334958.408685,
-   1794334958.6715515,
-   1794334958.9167347,
-   1794334959.166046,
-   1794334959.4122388,
-   1794334959.6538215,
-   1794334959.890332,
-   1794334960.1307259,
-   1794334960.3693101
-  ],
-  "Cf1u4VFDM2SWZB3q8yNsbpuQWd25LSGqqzGE5uNwNaFF": [
-   1794335057.4260397,
-   1794335057.6922119,
-   1794335057.9592583,
-   1794335100.4257338,
-   1794335100.6847184,
-   1794335100.9386997
-  ],
-  "D3Rw4bbjC2ZCpwP8LsDrcyCKvj1LhEvdMabhyCaGtShz": [
-   1794336527.1123838,
-   1794336596.868042,
-   1794336652.8959174
-  ],
-  "5Wm3vKrcTFrKkHePvd7Fibn6hvVA6DqieTzVJUdzE6yU": [
-   1794336546.4793994,
-   1794336561.5517402,
-   1794336594.7882955,
-   1794336623.7398949,
-   1794336632.421614,
-   1794336645.8097622
-  ]
- },
- "calls": [
-  {
-   "mint": "4HLzQoz5KkhXFrwKfX1Jb2iEFBd9QseFAEJvjqDdpump",
-   "symbol": "DAKITTY",
-   "kind": "breakout",
-   "t0": 1794332552.6654193,
-   "price0": 0.000163,
-   "creator": "Bt2BUeP1rjmSGqahhnA6VWFFpghDWXcMYdJyv1wtHhFV",
-   "peak": 0.0001657,
-   "last_price": 2.034e-06,
-   "hit": [],
-   "dead": true,
-   "closed": true,
-   "last_seen": 1794333192.8475838,
-   "liq0": 0.0,
-   "last_liq": 0.0,
-   "seen_dex": false,
-   "missing_since": 0.0,
-   "why_dead": ""
-  },
-  {
-   "mint": "AQ2gmhnqAiPDd2P6jgYrrVvVh8X1de2pBKPLKQbKpump",
-   "symbol": "VC",
-   "kind": "breakout",
-   "t0": 1794336435.5804842,
-   "price0": 0.0001001,
-   "creator": "FhtupaEuWSLmZBkV7Hh1QYx3Q6Q66foMCwti4zKKRhdK",
-   "peak": 0.0001079,
-   "last_price": 9.994e-05,
-   "hit": [],
-   "dead": false,
-   "closed": false,
-   "last_seen": 1794336647.922064,
-   "liq0": 27966.54,
-   "last_liq": 26848.78,
-   "seen_dex": true,
-   "missing_since": 0.0,
-   "why_dead": ""
-  }
- ],
- "last_alert": 1794336435.5804842,
- "last_quiet": 1794332337.2336411
+"store_version":7,
+"saved_at":1794337619.6668346,
+"records":{
+"4HLzQoz5KkhXFrwKfX1Jb2iEFBd9QseFAEJvjqDdpump":{
+"ca":"4HLzQoz5KkhXFrwKfX1Jb2iEFBd9QseFAEJvjqDdpump",
+"ticker":"DAKITTY",
+"name":"",
+"status":"dead",
+"official":true,
+"source":"dex",
+"first_alert_at":1794332552.6654193,
+"first_alert_price":0.000163,
+"first_alert_price_sol":null,
+"first_alert_mc_usd":null,
+"first_alert_liq_usd":null,
+"first_alert_message_id":null,
+"first_alert_jump":null,
+"first_alert_channel":"signals",
+"promoted_to_signals_at":null,
+"early_alert_at":null,
+"early_alert_price":null,
+"early_alert_mc_usd":null,
+"early_jump":null,
+"last_score":null,
+"last_mc_usd":null,
+"last_price":2.034e-06,
+"last_liq_usd":null,
+"last_update_at":null,
+"last_posted_price":null,
+"last_posted_score":null,
+"last_polled_at":null,
+"last_trade_at":null,
+"last_valid_price":2.034e-06,
+"last_valid_mc":null,
+"last_valid_at":1794333192.8475838,
+"quote_state":"OK",
+"missing_since":null,
+"peak_price":0.0001657,
+"peak_mc_usd":null,
+"peak_at":null,
+"max_drawdown_pct":0.0,
+"price_at":{},
+"multipliers_posted":[],
+"breakout_active":false,
+"death_posted":true,
+"death_reason":"manual",
+"death_at":1794333192.8475838,
+"invalidation_reason":null,
+"corrections":[],
+"catalyst_tag":"UNCHECKED",
+"catalyst_url":null,
+"catalyst_summary":null,
+"catalyst_first_try_at":null,
+"catalyst_rerun_done":false,
+"confluence":[],
+"dev_wallet":"Bt2BUeP1rjmSGqahhnA6VWFFpghDWXcMYdJyv1wtHhFV",
+"dev_balance":null,
+"dev_peak_balance":null,
+"pool":null,
+"pool_dex":null,
+"curve_key":null,
+"migrated_at":null,
+"liq_hist":[],
+"safety_snapshot":{},
+"safety_checked_at":null
+},
+"AQ2gmhnqAiPDd2P6jgYrrVvVh8X1de2pBKPLKQbKpump":{
+"ca":"AQ2gmhnqAiPDd2P6jgYrrVvVh8X1de2pBKPLKQbKpump",
+"ticker":"VC",
+"name":"Vice Cash",
+"status":"active",
+"official":true,
+"source":"dex",
+"first_alert_at":1794336435.5804842,
+"first_alert_price":0.0001001,
+"first_alert_price_sol":null,
+"first_alert_mc_usd":null,
+"first_alert_liq_usd":null,
+"first_alert_message_id":null,
+"first_alert_jump":null,
+"first_alert_channel":"signals",
+"promoted_to_signals_at":null,
+"early_alert_at":null,
+"early_alert_price":null,
+"early_alert_mc_usd":null,
+"early_jump":null,
+"last_score":70,
+"last_mc_usd":92942.0,
+"last_price":9.592e-05,
+"last_liq_usd":26258.8,
+"last_update_at":null,
+"last_posted_price":null,
+"last_posted_score":null,
+"last_polled_at":1794337590.8809795,
+"last_trade_at":1794337590.8809795,
+"last_valid_price":9.592e-05,
+"last_valid_mc":92942.0,
+"last_valid_at":1794337590.8809795,
+"quote_state":"OK",
+"missing_since":null,
+"peak_price":0.0001079,
+"peak_mc_usd":null,
+"peak_at":null,
+"max_drawdown_pct":-18.15184815184815,
+"price_at":{
+"t+5m":8.943e-05,
+"t+15m":0.0001004
+},
+"multipliers_posted":[],
+"breakout_active":false,
+"death_posted":false,
+"death_reason":null,
+"death_at":null,
+"invalidation_reason":null,
+"corrections":[],
+"catalyst_tag":"UNCHECKED",
+"catalyst_url":null,
+"catalyst_summary":null,
+"catalyst_first_try_at":null,
+"catalyst_rerun_done":false,
+"confluence":[],
+"dev_wallet":"FhtupaEuWSLmZBkV7Hh1QYx3Q6Q66foMCwti4zKKRhdK",
+"dev_balance":0.0,
+"dev_peak_balance":null,
+"pool":"3SUrcjyuH4QXM95eeuHXdrj1Y6aDP47J1xhYo73YJU8v",
+"pool_dex":"pumpswap",
+"curve_key":null,
+"migrated_at":null,
+"liq_hist":[
+[
+1794336774.4874396,
+25375.89
+],
+[
+1794336806.4688973,
+24755.96
+],
+[
+1794336864.5146368,
+25335.38
+],
+[
+1794336925.9785285,
+24860.69
+],
+[
+1794336986.7457476,
+25634.36
+],
+[
+1794337047.453298,
+24291.77
+],
+[
+1794337107.0287137,
+25384.84
+],
+[
+1794337167.8320582,
+25435.79
+],
+[
+1794337228.6415393,
+25419.54
+],
+[
+1794337288.0223277,
+25370.95
+],
+[
+1794337348.5838954,
+27152.34
+],
+[
+1794337410.1455693,
+27038.47
+],
+[
+1794337469.0973659,
+26038.34
+],
+[
+1794337529.5197067,
+26710.25
+],
+[
+1794337590.8809795,
+26258.8
+]
+],
+"safety_snapshot":{
+"fails":[],
+"lp":100.0,
+"revoked":true
+},
+"safety_checked_at":1794337373.9757988
+},
+"Ho7iohoM6UN96yoxzBNzz9aXZpNW3AyUVuEmBdAQpump":{
+"ca":"Ho7iohoM6UN96yoxzBNzz9aXZpNW3AyUVuEmBdAQpump",
+"ticker":"PPP",
+"name":"Pppercolator",
+"status":"active",
+"official":true,
+"source":"dex",
+"first_alert_at":1794336777.4924912,
+"first_alert_price":8.736e-05,
+"first_alert_price_sol":null,
+"first_alert_mc_usd":85135.0,
+"first_alert_liq_usd":22680.02,
+"first_alert_message_id":"1569786964960616581",
+"first_alert_jump":"https://discord.com/channels/1433093868810801384/1559413590874652703/1569786964960616581",
+"first_alert_channel":"signals",
+"promoted_to_signals_at":null,
+"early_alert_at":null,
+"early_alert_price":null,
+"early_alert_mc_usd":null,
+"early_jump":null,
+"last_score":70,
+"last_mc_usd":79956.0,
+"last_price":8.204e-05,
+"last_liq_usd":21991.15,
+"last_update_at":1794336777.4924912,
+"last_posted_price":8.736e-05,
+"last_posted_score":70,
+"last_polled_at":1794337589.8236444,
+"last_trade_at":1794337589.8236444,
+"last_valid_price":8.204e-05,
+"last_valid_mc":79956.0,
+"last_valid_at":1794337589.8236444,
+"quote_state":"OK",
+"missing_since":null,
+"peak_price":0.000137,
+"peak_mc_usd":133597.0,
+"peak_at":1794336925.9785593,
+"max_drawdown_pct":-6.089743589743602,
+"price_at":{
+"t+5m":0.0001068
+},
+"multipliers_posted":[],
+"breakout_active":false,
+"death_posted":false,
+"death_reason":null,
+"death_at":null,
+"invalidation_reason":null,
+"corrections":[],
+"catalyst_tag":"HYPE_ONLY",
+"catalyst_url":null,
+"catalyst_summary":null,
+"catalyst_first_try_at":1794336777.4924912,
+"catalyst_rerun_done":false,
+"confluence":[],
+"dev_wallet":"Dbjo7CBkRepRAhcaKKxV1BjWyQUCVRdFdHWupyL5xoVu",
+"dev_balance":1.0,
+"dev_peak_balance":null,
+"pool":"72jYfKk5H91YMLsgmyQWnm7nBK6rusqf8yLUnsFtECEf",
+"pool_dex":"pumpswap",
+"curve_key":null,
+"migrated_at":null,
+"liq_hist":[
+[
+1794336777.4924912,
+22680.02
+],
+[
+1794336808.5508957,
+23847.29
+],
+[
+1794336864.5146668,
+23634.82
+],
+[
+1794336925.9785593,
+28752.98
+],
+[
+1794336986.745778,
+27378.57
+],
+[
+1794337048.5404823,
+27832.2
+],
+[
+1794337107.028773,
+25377.19
+],
+[
+1794337167.8320906,
+25997.04
+],
+[
+1794337228.6415715,
+27550.69
+],
+[
+1794337289.120079,
+26484.36
+],
+[
+1794337348.5839279,
+25519.38
+],
+[
+1794337409.0821848,
+26197.86
+],
+[
+1794337470.2211032,
+22322.08
+],
+[
+1794337529.519767,
+22740.15
+],
+[
+1794337589.8236444,
+21991.15
+]
+],
+"safety_snapshot":{
+"fails":[],
+"lp":100.0,
+"revoked":true
+},
+"safety_checked_at":1794337378.404491
+},
+"FhBSSgj9ZpKNrYtWrDSGStaiRUaVP1DwfuxfeCE1pump":{
+"ca":"FhBSSgj9ZpKNrYtWrDSGStaiRUaVP1DwfuxfeCE1pump",
+"ticker":"FRONK",
+"name":"Fronk",
+"status":"invalidated",
+"official":true,
+"source":"dex",
+"first_alert_at":1794336836.3456757,
+"first_alert_price":0.0001005,
+"first_alert_price_sol":null,
+"first_alert_mc_usd":100542.0,
+"first_alert_liq_usd":23926.32,
+"first_alert_message_id":"1569787211463794733",
+"first_alert_jump":"https://discord.com/channels/1433093868810801384/1559413590874652703/1569787211463794733",
+"first_alert_channel":"signals",
+"promoted_to_signals_at":null,
+"early_alert_at":null,
+"early_alert_price":null,
+"early_alert_mc_usd":null,
+"early_jump":null,
+"last_score":78,
+"last_mc_usd":121476.0,
+"last_price":0.0001214,
+"last_liq_usd":26552.76,
+"last_update_at":1794336836.3456757,
+"last_posted_price":0.0001005,
+"last_posted_score":78,
+"last_polled_at":1794336894.4551268,
+"last_trade_at":1794336866.8792133,
+"last_valid_price":0.0001214,
+"last_valid_mc":121476.0,
+"last_valid_at":1794336866.8792133,
+"quote_state":"OK",
+"missing_since":null,
+"peak_price":0.0001214,
+"peak_mc_usd":121476.0,
+"peak_at":1794336866.8792133,
+"max_drawdown_pct":0.0,
+"price_at":{},
+"multipliers_posted":[],
+"breakout_active":false,
+"death_posted":true,
+"death_reason":"dev_sold",
+"death_at":1794336899.9860067,
+"invalidation_reason":"dev_sold",
+"corrections":[],
+"catalyst_tag":"REAL_CATALYST",
+"catalyst_url":"https://news.google.com/rss/articles/CBMiT0FVX3lxTE1NYzFiV2hHZFRtVGtSVjhpMUFfMDhKMjV3Y09ESG5WM0NjQ0RWdHhZNFBFYnBlSGlnMzhPT3padGFjN3dkVk84ZWpOUm1ZT0E?oc=5",
+"catalyst_summary":"Binance: \"Fronk Price (FRONK/USD) Today | Live Price, Market Cap & Chart\" (event coverage, not about the coin)",
+"catalyst_first_try_at":1794336836.3456757,
+"catalyst_rerun_done":false,
+"confluence":[],
+"dev_wallet":"9QGMcAhCyeqcsF6WcWmMHpELhWPtXv5EafV814HjiHPH",
+"dev_balance":32800733222550.0,
+"dev_peak_balance":null,
+"pool":"84GPAQCgKkdPx4e6VsBWnn1NUm38FgUikuFRQWp5B7u3",
+"pool_dex":"pumpswap",
+"curve_key":null,
+"migrated_at":null,
+"liq_hist":[
+[
+1794336836.3456757,
+23926.32
+],
+[
+1794336866.8792133,
+26314.44
+]
+],
+"safety_snapshot":{
+"fails":[],
+"lp":100.0,
+"revoked":true
+},
+"safety_checked_at":1794336836.3455179
+},
+"66KbLTkLpPBPdhkRZs8XZk7Yw1DwuV3KYHKNTvmbpump":{
+"ca":"66KbLTkLpPBPdhkRZs8XZk7Yw1DwuV3KYHKNTvmbpump",
+"ticker":"If",
+"name":"What If",
+"status":"active",
+"official":false,
+"source":"dex",
+"first_alert_at":null,
+"first_alert_price":null,
+"first_alert_price_sol":null,
+"first_alert_mc_usd":null,
+"first_alert_liq_usd":null,
+"first_alert_message_id":"1569787212755898525",
+"first_alert_jump":null,
+"first_alert_channel":"early-watch",
+"promoted_to_signals_at":null,
+"early_alert_at":1794336836.6923053,
+"early_alert_price":0.0001461,
+"early_alert_mc_usd":141505.0,
+"early_jump":"https://discord.com/channels/1433093868810801384/1559413590874652703/1569787212755898525",
+"last_score":66,
+"last_mc_usd":145773.0,
+"last_price":0.0001461,
+"last_liq_usd":28736.0,
+"last_update_at":1794336836.6923053,
+"last_posted_price":0.0001461,
+"last_posted_score":67,
+"last_polled_at":1794337619.6656933,
+"last_trade_at":1794336836.6923053,
+"last_valid_price":0.0001461,
+"last_valid_mc":141505.0,
+"last_valid_at":1794336836.6923053,
+"quote_state":"OK",
+"missing_since":null,
+"peak_price":0.0001461,
+"peak_mc_usd":141505.0,
+"peak_at":1794336836.6923053,
+"max_drawdown_pct":0.0,
+"price_at":{},
+"multipliers_posted":[],
+"breakout_active":false,
+"death_posted":false,
+"death_reason":null,
+"death_at":null,
+"invalidation_reason":null,
+"corrections":[],
+"catalyst_tag":"REAL_CATALYST",
+"catalyst_url":"https://news.google.com/rss/articles/CBMibEFVX3lxTE5yaGZLVnhtb3h5MmNwcW83c0JmMU9scHNLSzlTaHIwdjEyNmFhbVB6bTN0c1hiMEZzQnhDZUtvTDZFQU9xaWU0QkV3SG9Zc0tSLV9ObmhVSy1ob3VYbC1JeDJiZlZuODRTRndoNg?oc=5",
+"catalyst_summary":"Department of Energy (.gov): \"What is a Nuclear Microreactor?\" (event coverage, not about the coin)",
+"catalyst_first_try_at":1794336836.6923053,
+"catalyst_rerun_done":false,
+"confluence":[],
+"dev_wallet":"pGhHsBinWYpTHvfKuvpcW4u2Ym9xBAHfzWcJhKTfEWQ",
+"dev_balance":40741081607696.0,
+"dev_peak_balance":null,
+"pool":"DiDYAEAToWnRgHcbCH9XP76cjy4YuV18Mk5u9Z6CEPQB",
+"pool_dex":"pumpswap",
+"curve_key":null,
+"migrated_at":null,
+"liq_hist":[
+[
+1794336836.6923053,
+28281.67
+]
+],
+"safety_snapshot":{
+"fails":[],
+"lp":100.0,
+"revoked":true
+},
+"safety_checked_at":1794337437.5664241
+},
+"FairDR2UmRqHxsVPdPcetePCjFaDqVYv3oQX9fcQTpTg":{
+"ca":"FairDR2UmRqHxsVPdPcetePCjFaDqVYv3oQX9fcQTpTg",
+"ticker":"FAIR",
+"name":"FAIR",
+"status":"active",
+"official":true,
+"source":"dex",
+"first_alert_at":1794336897.6799548,
+"first_alert_price":0.0002027,
+"first_alert_price_sol":null,
+"first_alert_mc_usd":202341.0,
+"first_alert_liq_usd":34908.04,
+"first_alert_message_id":"1569787468931272756",
+"first_alert_jump":"https://discord.com/channels/1433093868810801384/1559413590874652703/1569787468931272756",
+"first_alert_channel":"signals",
+"promoted_to_signals_at":null,
+"early_alert_at":null,
+"early_alert_price":null,
+"early_alert_mc_usd":null,
+"early_jump":null,
+"last_score":73,
+"last_mc_usd":236203.0,
+"last_price":0.0002398,
+"last_liq_usd":37793.41,
+"last_update_at":1794336897.6799548,
+"last_posted_price":0.0002027,
+"last_posted_score":80,
+"last_polled_at":1794337619.6657712,
+"last_trade_at":1794337589.8236785,
+"last_valid_price":0.0002398,
+"last_valid_mc":239271.0,
+"last_valid_at":1794337589.8236785,
+"quote_state":"OK",
+"missing_since":null,
+"peak_price":0.0002735,
+"peak_mc_usd":272943.0,
+"peak_at":1794337167.8321066,
+"max_drawdown_pct":0.0,
+"price_at":{
+"t+5m":0.0002523
+},
+"multipliers_posted":[],
+"breakout_active":false,
+"death_posted":false,
+"death_reason":null,
+"death_at":null,
+"invalidation_reason":null,
+"corrections":[],
+"catalyst_tag":"REAL_CATALYST",
+"catalyst_url":"https://news.google.com/rss/articles/CBMikwFBVV95cUxPUzF4MWxESUtvWTg0TVdQSmtHaUFINGF0VDJQS0lMS3ZTaXJKdUo2dzRlcHpNRW5xcURtbjBsVWs2Q043QXJxZ05hMFhEcUlzS3Bwcmt5Z3VESGFBRHFBTVBqUXczNlZKNVZQVzdLQjgxdTdSOHdmTHBBRm84MGRHdG9xa1VwUnMyRWJKX09iTncwUEHSAacBQVVfeXFMTkxZMzVBNXh0XzFobXB3Y0pxWUVOaDJ0SE5JOVJNOXBsVVlnX2ZxeTduUHpYVDdLVjkxWlpGTXQ1MmZjVmM4V2FGMnV5YTNZdmZuSWplT0REWl9oUWlTdTZiYkt6YzZYeDZFVFc2TnN3V0l2RHExU2tpbE1RWi10b2tuREJfUGliellDQXBzRFRmelpnbDgwUkgyMkRCNEw0SEoyb2NpSk0?oc=5",
+"catalyst_summary":"WRDW: \"Teens forced Columbia County fair ride to swing out of control\" (event coverage, not about the coin)",
+"catalyst_first_try_at":1794336897.6799548,
+"catalyst_rerun_done":false,
+"confluence":[
+"GeckoTerminal trending"
+],
+"dev_wallet":"J4CZxeh3Recf7xUqGCzGAM2WJfkqARfxSHnMt8idfair",
+"dev_balance":0.0,
+"dev_peak_balance":null,
+"pool":"54GtpHJaEGKsfq6pWSRJa656zRgVFhkC5fzQBmp7qXmS",
+"pool_dex":"raydium",
+"curve_key":null,
+"migrated_at":null,
+"liq_hist":[
+[
+1794336897.6799548,
+34908.04
+],
+[
+1794336928.327126,
+34908.04
+],
+[
+1794336985.3386369,
+35553.88
+],
+[
+1794337046.0998695,
+35377.84
+],
+[
+1794337108.0820377,
+36053.04
+],
+[
+1794337167.8321066,
+40630.98
+],
+[
+1794337227.5046682,
+39037.55
+],
+[
+1794337258.50272,
+38838.56
+],
+[
+1794337291.2071397,
+38788.27
+],
+[
+1794337348.5839453,
+38558.61
+],
+[
+1794337409.0822182,
+37575.6
+],
+[
+1794337470.221137,
+36897.53
+],
+[
+1794337531.6052976,
+37307.17
+],
+[
+1794337589.8236785,
+38041.16
+]
+],
+"safety_snapshot":{
+"fails":[],
+"lp":100.0,
+"revoked":true
+},
+"safety_checked_at":1794337497.81926
+}
+},
+"blacklist":{
+"Bt2BUeP1rjmSGqahhnA6VWFFpghDWXcMYdJyv1wtHhFV":[
+1794334260.5570064,
+"old"
+],
+"Gh8ubiF4YrgdJxDfBUi1jcVqYfeQigzbuRgDTRhLxWL7":[
+1794334292.6561313,
+"HCAT: liquidity drained ($14.0K -> $1) in 15m"
+],
+"M3RgFBTSpXLi4QhhhowEhxe6hzQCjHVL1zX7RCJB3tk":[
+1794334323.0617182,
+"VEIL: liquidity drained ($16.2K -> $1) in 15m"
+],
+"7JKWwt81UnKMq6ef4ELNBDSeJviki97FxpHLRddMaUJH":[
+1794334475.9365444,
+"USHP: liquidity drained ($20.4K -> $0) in 15m"
+],
+"7G7zpPRM7FHKDsPakSGGRM3AfHJ2ExP877BEEtYW7UnW":[
+1794334751.213773,
+"CHI: liquidity drained ($20.1K -> $6) in 15m"
+],
+"Gyu95co9kgs5mygvnkiFN9PmnCn6Hg86KBVk4b3DfVp3":[
+1794334996.9487758,
+"PPP: liquidity drained ($29.8K -> $0) in 15m"
+],
+"DLkVFKDmNzqwGukEc8uRWSn6aiAAPXaUJknXB6R7tWL9":[
+1794335027.4260805,
+"BoxingCat: liquidity drained ($34.5K -> $0) in 15m"
+],
+"J1ejCsVm81RnoEnxgDYbvC1WKao2sWGYvhRFyykJBEgq":[
+1794335335.9226286,
+"Popo: liquidity drained ($30.8K -> $0) in 15m"
+],
+"2RxibNJmMnu5X4PJVb6yTMt7HoXwpL2Nee53ouYu8SMM":[
+1794335364.8246293,
+"SPCX: liquidity drained ($62.7K -> $0) in 15m"
+],
+"GnRBM5hsV9cpgkUc3pGvCLRmwtCRC8Z3bU3RLJ47KTpi":[
+1794335578.5118914,
+"McCoin: liquidity drained ($24.0K -> $2) in 15m"
+],
+"CqEeVTmGYfboM2PgoWFLEsiUk3VWHmr1GSSiDxwApcjX":[
+1794335885.093123,
+"ACTT: liquidity drained ($63.1K -> $7) in 15m"
+],
+"6TKGA723Rwna5r4G3sbHV1yTfDL1A6S5agAoyD38k8zs":[
+1794335977.5010252,
+"PIRATE: liquidity drained ($32.0K -> $0) in 15m"
+],
+"26bWsjWyfKGY4bfProStmXhd9oPa9TTfjjAppKHRPT1Z":[
+1794336068.968151,
+"AICoin: liquidity drained ($20.6K -> $0) in 15m"
+],
+"2ekvogH7UGLZuCqq2hzbersH8r2iHRsA7pLUgEiSMnkZ":[
+1794336191.251473,
+"ZDOG: liquidity drained ($12.6K -> $0) in 15m"
+],
+"2ysZT8SvuTXmhwEvXjYgWNtX17LhV7TYJggD58xozFWa":[
+1794336328.3677273,
+"GTA 6 Coin: liquidity drained ($25.6K -> $1.5K) in 15m"
+],
+"4hNTh2eu3fg5b7UWNm23w2UbzGhu1mtnQQiyPD8FSDci":[
+1794336497.8405054,
+"CAT: liquidity drained ($31.4K -> $0) in 15m"
+],
+"9QGMcAhCyeqcsF6WcWmMHpELhWPtXv5EafV814HjiHPH":[
+1794336900.362883,
+"FRONK: dev sold after alert"
+],
+"9httRLqSmWt26ZWFrxXffbdnsvP1kETGG9kkTuCdmAao":[
+1794337051.830936,
+"FRONK: liquidity drained"
+],
+"5GxvKsQuxY4BTXiPu47kaGLo2DYYs9rHb6HvSGMAkeRq":[
+1794337111.4195344,
+"Tormund: liquidity drained ($50.4K -> $1)"
+],
+"GCQ12DRAgkAKV3ERX5UmHcn2tYRhAvEH9GGXj4suakzy":[
+1794337173.20832,
+"ABUND: liquidity drained ($35.4K -> $0)"
+],
+"FNNVFXGe5e1eWsqDvS9vdB82pd8qYK6bNkkMYk2wWLkN":[
+1794337295.5673444,
+"FRONK: liquidity drained ($120K -> $0)"
+],
+"8qN7bmUb2gkZHupPKURGgnSoX1k1EX61QqHjG4xpaGs1":[
+1794337510.2992618,
+"SULEAGLE: liquidity drained ($116K -> $0)"
+]
+},
+"creator_times":{
+"Ee73PSGqxiDbxD5AF4DjhJMFVJMVwM46eb7SJtm4AvfV":[
+1794334268.1107123,
+1794334286.8921926,
+1794334304.6509843,
+1794334335.2103293,
+1794334337.5953243,
+1794334367.2939544,
+1794334368.9036841,
+1794334384.537204,
+1794334390.4271095,
+1794334431.9701338,
+1794334440.1280692,
+1794334441.1650932,
+1794334441.863098,
+1794334446.8990026,
+1794334449.1907115,
+1794334455.1029263,
+1794334475.1800032,
+1794334520.313782,
+1794334569.2225223,
+1794334610.7848272,
+1794334640.3792984,
+1794334726.3166292,
+1794334738.3902447,
+1794334749.2012756,
+1794334792.5447636,
+1794334841.0556717,
+1794334854.223611,
+1794334896.551977,
+1794334906.2208037,
+1794334911.7480192,
+1794334926.8919642,
+1794334940.8554924,
+1794334942.176713,
+1794334944.6058073,
+1794334979.411016,
+1794335021.395964,
+1794335052.7707093,
+1794335058.7085161,
+1794335073.8541567,
+1794335106.2618127,
+1794335119.8716292,
+1794335151.4457994
+],
+"9kgcQ1Zfi3VTqs9zwx2VXgkhW6PVizSiNJNPwY8aZLwn":[
+1794334286.503218,
+1794335076.2327676,
+1794336546.8961475,
+1794336595.150354,
+1794336656.8637605,
+1794336836.930272,
+1794336839.138697,
+1794336894.6980264,
+1794336907.980663,
+1794336910.6240776,
+1794336943.452615,
+1794336947.446639,
+1794336963.1986015,
+1794336968.7041519,
+1794337070.421001,
+1794337105.2617128,
+1794337142.5543988,
+1794337201.0560713,
+1794337484.6891923,
+1794337532.09645
+],
+"G9i5tQhn6FT3qd2TxmfY5xkcdyZdxUZy6n2DjsJzEaeA":[
+1794334305.722006,
+1794334408.6550546,
+1794335172.0979803
+],
+"39WgDrVwJ8irBQuvhJ296ZSUs6Wsw1H9rtxb88ZbuC59":[
+1794334315.4715297,
+1794334390.984643,
+1794334594.1322203,
+1794334789.1521933,
+1794335163.9160204,
+1794336606.1272032,
+1794337147.4629107,
+1794337252.3487473,
+1794337387.19049
+],
+"EXjWkYKcomQoY2viwE66EoaRNGugAV1TGXcFGiDECewT":[
+1794334327.513695,
+1794334422.8359728
+],
+"AV7PjXHL5JXZ1YoYRoN9Dsstg1x2UciBupMCXcJP8gUz":[
+1794334334.8667011,
+1794334380.1346836,
+1794334489.136677,
+1794334532.7476609,
+1794337202.7508526
+],
+"BqfKQdVgGp4pTBjZv6gV2NqeXJVhm5PjV4kLULFHtbF1":[
+1794334338.7877536,
+1794334418.000544,
+1794334439.612331
+],
+"GqF3nhzSStdGHuM4erGDGzA6e8heDcN1Nc3rUkNCZ5a2":[
+1794334339.2991102,
+1794334480.954848,
+1794336622.6703103,
+1794336800.1914036,
+1794336895.3572714,
+1794336974.2800877,
+1794337070.6720502,
+1794337213.5198932,
+1794337332.4953432,
+1794337435.2436259,
+1794337580.81287
+],
+"Fod111HrAHNLCRCkoSSD3NVaepitTMMdz4qXVySZGVez":[
+1794334379.007139,
+1794334634.2381005
+],
+"6TYLJEHKxTmojWR77aK1LbwBL8FLtRY4nEUoeP3MVAcx":[
+1794334379.2753992,
+1794334506.2058883,
+1794334570.5225012,
+1794334655.225971,
+1794334743.5460908,
+1794334793.1759055
+],
+"3oLmsQ1mXbM6uk5MkKoB4K3zFdTVwMHGELRZ4Md8czh3":[
+1794334414.4258225,
+1794334464.7107904,
+1794334546.9125874,
+1794334751.1960645,
+1794334792.2151864,
+1794334908.4138753,
+1794334971.0543916,
+1794335053.0502765,
+1794336519.7596686,
+1794336575.2611108,
+1794336837.1847625,
+1794336877.203714,
+1794337143.9170036,
+1794337165.8574483,
+1794337247.4588084,
+1794337441.381846,
+1794337458.062316,
+1794337495.9979138,
+1794337504.3547678,
+1794337554.830329,
+1794337607.549836
+],
+"DmX3SzYAotH1oFNvjRe3UeX7ScDMxFCzDfi2ppV7mB1o":[
+1794334662.2973583,
+1794334662.5568788,
+1794334662.8142996,
+1794334664.9417515,
+1794334665.208103,
+1794334665.4630034,
+1794334684.4254467,
+1794334684.6812572,
+1794334684.943033,
+1794334690.6690304,
+1794334690.9258256,
+1794334691.1884646,
+1794334692.2472754,
+1794334692.5178626,
+1794334692.774204,
+1794334694.4182594,
+1794334694.6688507,
+1794334694.9262984,
+1794334779.7233484,
+1794334779.9843705,
+1794334780.2557435,
+1794334781.4236586,
+1794334781.6888704,
+1794334789.9119577,
+1794334790.1640525,
+1794334790.449878,
+1794334792.8310802,
+1794334793.4417644,
+1794334793.6778238,
+1794335025.666069,
+1794335025.9116397,
+1794335026.1567879,
+1794335028.8214428,
+1794335029.062416,
+1794335029.3641758,
+1794335039.4564066,
+1794335039.7090907,
+1794335039.9507384,
+1794335042.6558533,
+1794335042.9024737,
+1794335043.154251,
+1794335045.119505,
+1794335045.3536837,
+1794335045.5961106,
+1794335070.8504071,
+1794335071.0973015,
+1794335071.3459132,
+1794335101.4847863,
+1794335101.7332017,
+1794335101.9671116,
+1794335105.0776498,
+1794335105.3250263,
+1794335105.5864353,
+1794335108.2999382,
+1794335108.557832,
+1794335108.7948637,
+1794335109.7365353,
+1794335109.9882495,
+1794335110.49689,
+1794335112.3548877,
+1794335112.5975473,
+1794335112.8572388
+],
+"EsnBhGqddNz6h6LyyvHtGHchARWrkW7XiRTfoooPBfyP":[
+1794334695.567955,
+1794335171.8206854,
+1794337021.9318526
+],
+"GVhVwYmo5f4Rrg2XSQZiZHvh26UhV69nmFa9GFCZFy6B":[
+1794334756.4210694,
+1794334924.8747091
+],
+"7iWESNk1yQpLPQNKJ6zQS7yhwKCJ3JsN7KCwLf88sS2X":[
+1794334773.94848,
+1794334947.2838776,
+1794335033.8484445,
+1794335153.120024
+],
+"5u27m9oUoJUYYe1cxMgXuVrzaGcMBXPvfXRu6rp3oud9":[
+1794334958.1362941,
+1794334958.408685,
+1794334958.6715515,
+1794334958.9167347,
+1794334959.166046,
+1794334959.4122388,
+1794334959.6538215,
+1794334959.890332,
+1794334960.1307259,
+1794334960.3693101
+],
+"Cf1u4VFDM2SWZB3q8yNsbpuQWd25LSGqqzGE5uNwNaFF":[
+1794335057.4260397,
+1794335057.6922119,
+1794335057.9592583,
+1794335100.4257338,
+1794335100.6847184,
+1794335100.9386997,
+1794337133.5145986,
+1794337133.7675657,
+1794337134.0209334
+],
+"D3Rw4bbjC2ZCpwP8LsDrcyCKvj1LhEvdMabhyCaGtShz":[
+1794336527.1123838,
+1794336596.868042,
+1794336652.8959174,
+1794336915.996002,
+1794336958.6314313,
+1794337479.9993024,
+1794337528.1520624
+],
+"5Wm3vKrcTFrKkHePvd7Fibn6hvVA6DqieTzVJUdzE6yU":[
+1794336546.4793994,
+1794336561.5517402,
+1794336594.7882955,
+1794336623.7398949,
+1794336632.421614,
+1794336645.8097622,
+1794336802.5659995,
+1794336872.9308743,
+1794336883.9445868,
+1794336905.180418,
+1794336907.72605,
+1794336916.287343,
+1794336917.113501,
+1794336933.6207857,
+1794336938.4575295,
+1794336946.9166124,
+1794336967.6936016,
+1794336985.7250044,
+1794336991.269835,
+1794337010.0643837,
+1794337018.081057,
+1794337018.3976464,
+1794337027.952574,
+1794337028.2177107,
+1794337067.4060075,
+1794337073.3084524,
+1794337093.4614522,
+1794337115.9701653,
+1794337132.2447774,
+1794337132.7683976,
+1794337143.3773894,
+1794337196.642401,
+1794337203.0452552,
+1794337204.8885844,
+1794337214.2003849,
+1794337236.230755,
+1794337261.2847652,
+1794337277.7613804,
+1794337307.6851978,
+1794337318.0249825,
+1794337440.4597032,
+1794337444.9001777,
+1794337460.0554729,
+1794337462.6501136,
+1794337466.4672627,
+1794337476.9279757,
+1794337503.0188608,
+1794337538.394924,
+1794337545.7859015,
+1794337601.9333885,
+1794337610.9961262,
+1794337613.9529324,
+1794337615.7879837
+],
+"47zTdjVsBpkVSgHyHUYSwqxzBqSo5Jg7LhfHwY9mYGaY":[
+1794336794.9938347,
+1794337599.1530242
+],
+"8pVNNvyyCiaYXPDavdEo1hCVgmqu5bUyxU43rXU9FhcF":[
+1794336814.8253202,
+1794337010.3487008
+],
+"5DQSGsFrVZF1nueGJsNivTJKEKg2m8kgJ4Zx4w9o2Vfk":[
+1794336826.639151,
+1794337059.9171793,
+1794337081.1067936,
+1794337242.2637537
+],
+"PvC5abSq1569DkqDApYWyvwc3nFhCrc8Xid1qJpSoup":[
+1794336854.4039366,
+1794336906.7460818,
+1794336968.456766,
+1794337029.902216,
+1794337094.7292166,
+1794337168.1195722,
+1794337232.95163,
+1794337294.260001,
+1794337377.865426,
+1794337428.7961037,
+1794337565.528662,
+1794337617.4982662
+],
+"8huFoVXE5mBWfYJzYPmkffUE9FaFnDeydgGVRP1ME4Jv":[
+1794336872.1187606,
+1794337149.6961744
+],
+"dtrzJPj7yDdvm6eRqBAgxsK2sMJeD9HhBEBB3XMedXy":[
+1794336944.3997667,
+1794337384.6005783
+],
+"EkHeJr42Zk5ZpachjSNETmu5EiayQQ9TGx4KXDx1ZJD2":[
+1794336976.646474,
+1794337214.5466259
+],
+"2XwmK62bxyFkVrz2zSf7zfEdrKJ3tiGXzCqvPM6inkj3":[
+1794337053.4521146,
+1794337297.421831
+],
+"GhEnzhy8SxKffgyLQqpiUeNFXXkFmsNNmzfatWuys2rG":[
+1794337076.6274207,
+1794337381.1834054
+],
+"48CKHCY1S9AAxSANDfJXYgMbg3PDYLbjnQwbfz9w8hrR":[
+1794337219.377202,
+1794337234.2042098
+],
+"BAoJmpEfo7MQcUeeeH5rHm4ktLBubT5jLeUNhLYKVAak":[
+1794337249.7710264,
+1794337464.6427934
+],
+"6KZyK1gQNRjdiaqqqn35sKHMbRoENdq2kBh9Buqcwxem":[
+1794337365.1421504,
+1794337434.8343272
+]
+},
+"jobs":{
+"tracker":1794333600.0,
+"recap":1794337200.0,
+"leaderboard":1794286800.0,
+"postmortem":1794287100.0
+},
+"meta":{
+"last_poll_ok":1794337606.3625898,
+"last_heartbeat":1794336773.4744136
+}
 }
