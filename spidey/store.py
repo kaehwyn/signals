@@ -17,7 +17,10 @@ PT = ZoneInfo("America/Los_Angeles")
 STORE_VERSION = 7
 
 STATUSES = ("active", "invalidated", "dead", "archived")
-DEATH_REASONS = ("liquidity_pulled", "dev_sold", "dev_blacklisted", "no_trades", "safety_fail", "manual")
+DEATH_REASONS = ("liquidity_pulled", "price_collapse", "dev_sold", "dev_blacklisted", "lp_unlocked", "authority_revived",
+                 "no_trades", "safety_fail", "manual")
+RUG_REASONS = ("liquidity_pulled", "price_collapse", "dev_sold", "dev_blacklisted", "lp_unlocked", "authority_revived", "safety_fail")
+STAGES = ("new_pairs", "final_stretch", "migrated")
 
 
 def norm_ca(ca: str) -> str:
@@ -41,6 +44,10 @@ class Record:
     status: str = "active"
     official: bool = False                  # True once it is (or was promoted to) a #signals alert
     source: str = "dex"                     # "curve" (pump.fun bonding curve) or "dex"
+    stage: Optional[str] = None             # stage at the FIRST post: new_pairs | final_stretch | migrated
+    bonding_pct: Optional[float] = None     # bonding-curve progress at the first post (None for migrated)
+    official_stage: Optional[str] = None    # stage when it became an official #signals alert
+    official_bonding_pct: Optional[float] = None
     # ---- official baseline (multiplier math uses ONLY these)
     first_alert_at: Optional[float] = None
     first_alert_price: Optional[float] = None       # USD
@@ -61,6 +68,7 @@ class Record:
     last_mc_usd: Optional[float] = None
     last_price: Optional[float] = None
     last_liq_usd: Optional[float] = None
+    peak_liq_usd: Optional[float] = None            # highest liquidity of the primary pool since the alert
     last_update_at: Optional[float] = None          # last POSTED update (not last poll)
     last_posted_price: Optional[float] = None
     last_posted_score: Optional[int] = None
@@ -116,6 +124,16 @@ class Record:
     @property
     def ended(self) -> bool:
         return self.status in ("dead", "invalidated")
+
+
+def stage_of(r: Record) -> str:
+    """Stage a record counts under in the stats (older records without a stored stage are inferred)."""
+    st = (r.official_stage if r.official else None) or r.stage
+    if st:
+        return st
+    if r.source != "curve":
+        return "migrated"
+    return "final_stretch" if (r.first_alert_mc_usd or r.early_alert_mc_usd or 0) >= 25_000 else "new_pairs"
 
 
 RECORD_FIELDS = {f.name for f in fields(Record)}

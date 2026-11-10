@@ -105,7 +105,7 @@ def test_4_gpu_single_death_with_ca_and_jump(env):
     deaths = [e for _, e, _ in env.poster.posts if e["title"].startswith("DEAD")]
     assert len(deaths) == 1
     assert CA in deaths[0]["description"] and "discord.com/channels" in deaths[0]["description"]
-    assert env.poster.posts[-1][0] == "graveyard"
+    assert env.poster.posts[-1][0] == "signals"                   # same channel as the original alert
 
 
 def test_5_kawaene_lp_pull_uses_last_valid(env):
@@ -285,3 +285,84 @@ def test_endings_silent_by_default(env):
     assert env.lc.kill(CA, "liquidity_pulled") == "DEAD"
     assert env.store.get(CA).status == "dead" and env.poster.types() == ["NEW"]
     assert M.tracker_stats(env.store.records.values(), env.clock())["dead"] == 1
+
+
+# ---------------------------------------------------------------- v8: death detection
+def test_fomo_price_minus_99_with_1500_liq_left_dies_in_one_poll(env):
+    env.lc.on_candidate(obs(price=1.0, liq=15_000))
+    env.advance(1)
+    assert env.lc.on_quote(CA, q(0.01, liq=1_500)) == "DEAD"       # liq > $500 floor, but -90% from the alert level
+    assert env.store.get(CA).status == "dead"
+    ch, e, _ = env.poster.posts[-1]
+    assert ch == "signals" and e["title"].startswith("DEAD") and CA in e["description"] and "Original:" in e["description"]
+
+
+def test_price_collapse_alone_kills_even_if_liquidity_held(env):
+    env.lc.on_candidate(obs(price=1.0, liq=5_000))
+    env.advance(1)
+    assert env.lc.on_quote(CA, q(0.01, liq=1_500)) == "DEAD"       # liquidity only -70%: the price rule catches it
+    assert env.store.get(CA).death_reason == "price_collapse"
+
+
+def test_price_minus_90_from_peak_kills(env):
+    env.lc.on_candidate(obs(price=1.0))
+    env.advance(5)
+    env.lc.on_quote(CA, q(3.0))
+    env.advance(5)
+    assert env.lc.on_quote(CA, q(0.29)) == "DEAD"                  # still 0.29x of alert, but -90% from the 3x peak
+    assert env.store.get(CA).death_reason == "price_collapse"
+
+
+def test_liquidity_drop_80_from_peak_any_time_not_just_15_min(env):
+    env.lc.on_candidate(obs(price=1.0, liq=20_000))
+    env.lc.on_quote(CA, q(1.2, liq=40_000))
+    for _ in range(6):                                             # slow bleed over 3 hours
+        env.advance(30)
+        assert env.lc.on_quote(CA, q(1.0, liq=20_000)) is None
+    env.advance(30)
+    assert env.lc.on_quote(CA, q(0.6, liq=7_900)) == "DEAD"
+    assert env.store.get(CA).death_reason == "liquidity_pulled"
+    assert "1.00x" in env.poster.posts[-1][1]["description"]       # last VALID multiple, not the drained pool's
+
+
+def test_scanner_refresh_does_not_block_the_price_poll(env):
+    env.lc.on_candidate(obs(price=1.0, signals=False, early=True))
+    polled = env.store.get(CA).last_polled_at
+    env.advance(2)
+    env.lc.on_candidate(obs(price=1.0, signals=False, early=True))
+    assert env.store.get(CA).last_polled_at == polled              # only on_quote moves the poll clock
+    assert env.lc.on_quote(CA, q(0.01, liq=18_000)) == "DEAD"      # early-watch coins die too
+    assert env.poster.posts[-1][0] == "early-watch"
+
+
+def test_quiet_fade_is_silent_but_rug_is_posted(env):
+    env.lc.on_candidate(obs(price=1.0))
+    env.lc.on_quote(CA, q(0.9))
+    env.advance(181)
+    assert env.lc.on_quote(CA, q(0.25, traded=False)) == "DEAD"
+    assert env.poster.types() == ["NEW"] and env.store.get(CA).death_reason == "no_trades"
+
+
+def test_stage_stored_and_tracker_splits_rugs_from_fades(env):
+    env.cfg.max_new_per_hour = 99
+    a, b, c = "A" * 40 + "pump", "B" * 40 + "pump", "C" * 40 + "pump"
+    env.lc.on_candidate(obs(ca=a, stage="final_stretch", bonding_pct=82.0, liq=None))
+    env.lc.on_candidate(obs(ca=b, stage="migrated"))
+    env.lc.on_candidate(obs(ca=c, stage="new_pairs", bonding_pct=31.0, liq=None, signals=False, early=True))
+    ra = env.store.get(a)
+    assert ra.stage == ra.official_stage == "final_stretch" and ra.bonding_pct == 82.0
+    assert env.store.get(c).stage == "new_pairs" and env.store.get(c).official_stage is None
+    assert "Final Stretch" in env.poster.posts[0][1]["description"] and "bonding 82%" in env.poster.posts[0][1]["description"]
+    env.advance(5)
+    env.lc.on_quote(a, q(2.5, liq=None, pool="POOL1", dex="pumpfun"))
+    env.lc.on_quote(b, q(0.05))                                    # rug
+    env.advance(200)
+    env.lc.on_quote(a, q(0.28, liq=None, dex="pumpfun", traded=False))  # -72% vs alert, no trades for hours: a fade
+    s = M.tracker_stats(env.store.records.values(), env.clock())
+    assert (s["rugs"], s["fades"], s["hit2"]) == (1, 1, 1)
+    st = M.stage_stats(env.store.records.values(), env.clock())
+    assert st["final_stretch"] == {"posts": 1, "official": 1, "hit2": 1, "hit5": 0, "rugs": 0, "fades": 1}
+    assert st["migrated"]["rugs"] == 1 and st["new_pairs"] == {"posts": 1, "official": 0, "hit2": 0, "hit5": 0, "rugs": 0, "fades": 0}
+    body = M.tracker_embed(env.store.records.values(), env.clock())["description"]
+    assert "Rugged: 1" in body and "Quiet fades: 1" in body and "Final Stretch: 1 posts" in body
+    assert "Hit rate by stage" in M.leaderboard_embed(env.store.records.values(), env.clock())["description"]
