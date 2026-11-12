@@ -5031,3 +5031,60 @@ time,event,symbol,mint,price,detail
 2026-11-12 17:27:45,UPDATE,Huang,4FP2GRQS3WYPsZSE2dwaVzqkajrBpHcXyVSTVt83pump,,score 78
 2026-11-12 17:27:47,UPDATE,DAPDAP,9kj9xhHERVg5zoWAVaekKdDgkxV1PeEcf33VktUkCpad,,score 70
 2026-11-12 17:28:31,NEW,COOK,DogWy9LWmDYEVncLdiEpC6mEHDXXsXXqCfc8oZgSpump,,score 67
+2026-11-12 17:30:37,BLACKLIST,DC,Evm4boHPRXAYyHbK6uzNKwWjNfjs7NYgprxiPhqgn1sE,,8AA9wdo6tWeSdcQsFPdkXxmPDdabmgkfJwDSBsVn7fTC | liquidity drained ($70.0K -> $3)
+2026-11-12 17:31:44,UPDATE,FlyDog,5tePJcGmdKAoNVXe3fp2tmf8n7cmr5d3YBkYKj4Cpump,,score 65
+2026-11-12 17:32:09,UPDATE,COOK,DogWy9LWmDYEVncLdiEpC6mEHDXXsXXqCfc8oZgSpump,,score 90
+2026-11-12 17:32:10,UPDATE,MrBeast,6H45TpyeGhzvEVmbqHDykdmusBPfbMSfUurFQ7jopump,,score 70
+2026-11-12 17:32:54,UPDATE,Shitcoin,8p7GCo3fWJ55LFQbhkBd8hCpw3ACk98PgK7Lsd6Upump,,score 57
+2026-11-12 17:32:54,UPDATE,Parrot,3Yoj6vQYTHfFVVBwHGNDbxBhh6R7iw41BSrNSGJ4pump,,score 52
+2026-11-12 17:33:29,DEAD,Rockstar,H6Z16MWrRQsaVLJGxWbsnUjk7FBt1JdHHjYaUhXypump,,liquidity_pulled Liquidity $45.9K → $1.5K.
+2026-11-12 17:33:29,BLACKLIST,Rockstar,H6Z16MWrRQsaVLJGxWbsnUjk7FBt1JdHHjYaUhXypump,,9Q7oaw7f9fJvfziHoy8W8hh4CWnmtKzsisoVtMc7EG4Q | liquidity pulled
+2026-11-12 17:33:29,DEAD,Rockstar,H6Z16MWrRQsaVLJGxWbsnUjk7FBt1JdHHjYaUhXypump,,
+2026-11-12 17:34:05,UPDATE,blackjesus,5LPUWuxVTfkEhGob1kyWgijbFse4icqqH7VTgY79pump,,score 70
+2026-11-12 17:34:13,DEAD,MrBeast,6H45TpyeGhzvEVmbqHDykdmusBPfbMSfUurFQ7jopump,,liquidity_pulled Liquidity $24.4K → $1.5K.
+2026-11-12 17:34:13,BLACKLIST,MrBeast,6H45TpyeGhzvEVmbqHDykdmusBPfbMSfUurFQ7jopump,,Hegtw583APWW43wXLBwtno7bc4AjRLVxBgp9CYoohtAy | liquidity pulled
+2026-11-12 17:34:13,DEAD,MrBeast,6H45TpyeGhzvEVmbqHDykdmusBPfbMSfUurFQ7jopump,,
+2026-11-12 17:35:27,UPDATE,Scamson,BkkYbdQC4iobBQs38ShdvqtAzhHcAhPHjQewZBj6BUhM,,score 51
+2026-11-12 17:35:59,NEW,DC,86Z6bxoT46wSEy2i6S8xFHrfmbTFBpUHGEvfSzwypump,,score 63
+2026-11-12 17:36:30,BLACKLIST,AMD,PjFXJg22oDaUri3t3zodk9gLhaqiHNdAwPCbx7rpump,,CjkmtZb3nbZmaM9eaWNmY8J7buCgixqmW4Yu2yXpDC86 | liquidity drained
+2026-11-12 17:36:56,UPDATE,WoW,WARcTjZyqpwsU3ATmaJkd9qAHUQVFGDWXgXbvseRaFT,,score 65
+2026-11-12 17:38:01,UPDATE,MRPENIS,HFcyhe28iLYRhac2W5FBdtDGFunWDJesCR7f6EZJpump,,score 65
+2026-11-12 17:38:44,BLACKLIST,DC,2qX2gMa8JC1qFNysFMEpU8b1nw7BgTneGicQtN381SVd,,HCymEJZsJrmfHMsjKvz7MVSejCKuGYrT3MxPBAdP5ax4 | liquidity drained ($29.2K -> $14)
+2026-11-12 17:39:54,UPDATE,DC,86Z6bxoT46wSEy2i6S8xFHrfmbTFBpUHGEvfSzwypump,,score 98
+2026-11-12 17:40:13,NEW,fomo,9ST4Z9oSawR92suXfkNtnYPirUJKVqhcYAkvcuF8pump,,score 58
+2026-11-12 17:40:21,NEW,CumCoin,AQecuBqSMSu38PCudUde18z66pSyrWHT16Kb7vmPpump,,score 70
+2026-11-12 17:40:46,BLACKLIST,degen,BN3KH1s6BNwTqya2ctisAhhD4GPrmcqdksarE8dHrX11,,8qF1VaiarUcLsDxhJKovkPnbYMxHYnjukk4F3aTYccGK | liquidity drained ($21.1K -> $30)
+2026-11-12 17:40:58,UPDATE,CALLSCOUT,BQo18x16LuYdFwZHyq578qc5enqQW57LTE9Cgwzqpump,,score 59
+2026-11-12 17:41:16,BLACKLIST,uni,7misTUMD47SxDTWxBHEWy2hqSTMPVJhTYjQUkrJpA7Wk,,GbZMnTABg1CmprJsqrFL7fAASUyYmbyjNK4EXrdHjqC2 | liquidity drained ($23.1K -> $29)
+2026-11-12 17:42:13,UPDATE,Shiqi,4Q9b2CGx5HXP36BFMx6uWMrGK4arKChfWg8dzZKYpump,,score 53
+2026-11-12 17:42:26,UPDATE,GTA 6,EK4z51HqAGvDHf4g1Pn2RJX57j1zPwngoY3t2uWLpump,,score 74
+2026-11-12 17:42:49,BLACKLIST,LOOONGCIGS,FxfHwwoB788rZijbPFJ14bJSRswTVYRtRiTT72WGkw2U,,6mma8CrsBZVfqVMmXee8ZNNDu7EEJUiAhLnQ2uqFpwPv | liquidity drained ($38.2K -> $3)
+2026-11-12 17:43:19,BLACKLIST,Twrcrab,FmBNuMhDcsWqMBvuwdtyHA7EZ434qJRZ9dmdFimGBAGS,,7Y5oRBn7414Zz4oB4xVn9Pu4Aig5QDSbefg7VEsw9Ebx | liquidity drained ($116K -> $0)
+2026-11-12 17:43:19,UPDATE,ANAL,7ynko9bycSr8czpCHteQQfS6yu7MWVjbQJbrBE8Rpump,,score 65
+2026-11-12 17:43:40,DEAD,COOK,DogWy9LWmDYEVncLdiEpC6mEHDXXsXXqCfc8oZgSpump,,liquidity_pulled Liquidity $21.3K → $1.6K.
+2026-11-12 17:43:40,BLACKLIST,COOK,DogWy9LWmDYEVncLdiEpC6mEHDXXsXXqCfc8oZgSpump,,F1pffa2sq1nAoWysPWyeg8dd24JyMAgAZM6KvUW3yBkt | liquidity pulled
+2026-11-12 17:43:40,DEAD,COOK,DogWy9LWmDYEVncLdiEpC6mEHDXXsXXqCfc8oZgSpump,,
+2026-11-12 17:44:44,INVALIDATED,DC,86Z6bxoT46wSEy2i6S8xFHrfmbTFBpUHGEvfSzwypump,,dev_sold Dev wallet balance dropped 4.97% of supply.
+2026-11-12 17:44:44,BLACKLIST,DC,86Z6bxoT46wSEy2i6S8xFHrfmbTFBpUHGEvfSzwypump,,FGqg6Rw2poormT2HiKjVAk5AeEoeBAfq4CHw8oHxQUUG | dev sold after alert
+2026-11-12 17:45:34,UPDATE,fomo,9ST4Z9oSawR92suXfkNtnYPirUJKVqhcYAkvcuF8pump,,score 70
+2026-11-12 17:47:25,UPDATE,LuckyCoin,89iRVoDVPd8tuRrMyhgPfe58eDneasPsdEVu5AUMpump,,score 52
+2026-11-12 17:47:29,UPDATE,blackjesus,5LPUWuxVTfkEhGob1kyWgijbFse4icqqH7VTgY79pump,,score 59
+2026-11-12 17:47:53,BLACKLIST,ADA,JCWyr3oqKSTubxxr78uMkK1JfufdagUqnWnitdJPgYNJ,,7RTswmw9yscqjDtaiy1w9HxchYj3gieNRFMBQuG7hvkb | liquidity drained ($35.6K -> $0)
+2026-11-12 17:48:03,UPDATE,X,3dqeBW7EJYAPnv9tGJeQAwBoxZsC2vomFk7ah7GrFoss,,score 66
+2026-11-12 17:48:03,BREAKOUT,BALLS,5ZA32FxzsxcSXZuYDbrxa9QVVvzkiLbisDb5VKmNpump,,score 70
+2026-11-12 17:48:23,BLACKLIST,Horned cat,85JVMjZERRYgr8oXk8Y9pQcbb6Z6f6GZbwhU5RyVSUxs,,4BnuyAHzcXRDtgyaL7epLLrxJTaFwtTcSrcviQ84qjia | liquidity drained ($44.4K -> $0)
+2026-11-12 17:48:25,BREAKOUT,HUANG,8pMUc522qUPHeSyCFw4MHR8mk2xhX7YMjcG7KbS7BAGS,,score 78
+2026-11-12 17:50:26,BREAKOUT,AMD,2Er3UtbQGWyNgeKMyUs218i11Z6v4gtfgwmqoSNPpump,,score 70
+2026-11-12 17:50:56,BLACKLIST,FLYCAT,FYtQmje5KkyrLFhvjKj8PmR6bEAGmPERteKKUroAgmcF,,A2WxgXGnm4N6R5eBiPdztLuHV9DE9ijGgniFttjBc1by | liquidity drained ($37.6K -> $0)
+2026-11-12 17:52:28,BLACKLIST,Crowatch,6GabkamrFdNmo3VteRCtzmt56UiXuDBxjDN8emUwbonk,,3B8YqKnHBvxKWX6CKNVGEQZ36tQeUZk5YiJgxthDcWUe | liquidity drained ($112K -> $0)
+2026-11-12 17:52:29,UPDATE,GTA 6,EK4z51HqAGvDHf4g1Pn2RJX57j1zPwngoY3t2uWLpump,,score 72
+2026-11-12 17:53:05,UPDATE,WoW,WARcTjZyqpwsU3ATmaJkd9qAHUQVFGDWXgXbvseRaFT,,score 78
+2026-11-12 17:55:31,BLACKLIST,黑天鹅,CKnppvpLG23CQfCTiT8wxNngA6J7Vu7hiaFDuDFTP2X,,8XyuDEkRfx7H5ie8PEWfTzPuJzHuDmNjhQj2xS8mPcdN | liquidity drained ($118K -> $0)
+2026-11-12 17:55:32,DEAD,GTA 6,EK4z51HqAGvDHf4g1Pn2RJX57j1zPwngoY3t2uWLpump,,liquidity_pulled Liquidity $37.0K → $1.6K.
+2026-11-12 17:55:32,BLACKLIST,GTA 6,EK4z51HqAGvDHf4g1Pn2RJX57j1zPwngoY3t2uWLpump,,8xevKYa1fkQ4K7soLgNxyqEaiNUY68jzUgdDSgKWoCy4 | liquidity pulled
+2026-11-12 17:55:32,DEAD,GTA 6,EK4z51HqAGvDHf4g1Pn2RJX57j1zPwngoY3t2uWLpump,,
+2026-11-12 17:57:02,BLACKLIST,IMG,8Y7Y6PYMxEfQKRhjExvv6dAsLqF7pxqA8eXf1Qki3eRM,,DAv7Ao3aNuEhdqvvLGdRH1nvx14KYFHX8cPxFnFume5v | liquidity drained ($173K -> $0)
+2026-11-12 17:57:08,UPDATE,AudaCity,DfeGETUvcSwR7h4S46EVKsEEi329uZXuXb9wWZjjpump,,score 76
+2026-11-12 17:58:04,BLACKLIST,Grotti,BjqqzXTFsA8yxmEcpJUyCNPxnuFoYQhjtpaSKmUNP3VU,,Ar6XemEtK7j4ZmCTLbTcYg1Zh3gauvsvVN2tJWaAHDr6 | liquidity drained ($21.9K -> $16)
+2026-11-12 17:58:04,BLACKLIST,IMG,FxNdeUBr8htbqJnbUBm1NhcQntNWuDBjFtanNTGcJn8u,,FifDeEHbVp8poh28KWnKQbuM5DrHvv7PkPuLuSJaCBCL | liquidity drained ($11.9K -> $0)
+2026-11-12 17:58:20,UPDATE,POPVAX,7TmeeJxBF3PFsbgzuy23XpWJzQsqVXjvgLTb8S2zpump,,score 70
