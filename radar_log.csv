@@ -11306,3 +11306,37 @@ time,event,symbol,mint,price,detail
 2026-11-15 11:16:54,UPDATE,AMS,4b3ypv8i8vKUfCfETpbbPSLtvvW39eQVt5M41PxCpump,,score 63
 2026-11-15 11:18:42,BLACKLIST,bcat,CBJC6K3aeZuWyG85MJhCmzam8izCkLBsC2nkP6RaU3qi,,J5XrXPpF76u5p8YC9iKfV6kYdxxMcZKyCFQZD3ZFoVy5 | liquidity drained ($19.5K -> $1)
 2026-11-15 11:20:55,UPDATE,CYBER,Gt1G6V5YEb9GyZzjq3wwxzDGU56BQwiK2eZP9dgFpump,,score 48
+2026-11-15 11:23:17,BLACKLIST,PHC,AqmdRsBcTMY3PFSmwbakDb1D1PdHYZ6egxHnAMHoRjy7,,HK3o3r6ky4eBdzJ4k36dwAyrnpc1nd3PAhjaG26EywqW | liquidity drained ($27.1K -> $0)
+2026-11-15 11:23:47,BLACKLIST,面包小人,H1h6AAQ4RL6J2qMm5ba4eFpFPDa9eVL33xFTVHWhwhJp,,8v5dugiPZqnz1pgV8xBBCmPYUDUYxAuKd1yVstn399QE | liquidity drained ($22.3K -> $0)
+2026-11-15 11:24:20,BREAKOUT,dragoncat,3nbHBkEDdbPiF5zJMhsxucm25V6UHKv9BVQuTKJVpump,,score 70
+2026-11-15 11:24:46,INVALIDATED,mihao,APbH5qw3mBzKz5kBGYXbhpC9ZrsGJwY8huoeftSZpump,,dev_sold Dev wallet balance dropped 0.11% of supply.
+2026-11-15 11:24:46,BLACKLIST,mihao,APbH5qw3mBzKz5kBGYXbhpC9ZrsGJwY8huoeftSZpump,,BmorQUCHEzrLgvw38AsmcXeFCcqQpsjGUV4NVJTW3Fh4 | dev sold after alert
+2026-11-15 11:25:04,UPDATE,penny,5gmCPpuktJ7Svjgr4PPJBTosAFKB8K6Z45EGfSUmpump,,score 66
+2026-11-15 11:26:50,BLACKLIST,面包小人,FDzwV7iYWbN5qa1nt3bkupExLjwDhNgfQ3VJxNu9SsXo,,9RuxgV3ZyGdh1xcki5KMmmBRNi7Byu6oRi27C4JPdZLM | liquidity drained ($42.0K -> $8)
+2026-11-15 11:27:51,BLACKLIST,SURVIVE,41fG46uFCgFrzPueJrMRav1EnrTA2EKXXxDmM4ecchQU,,G6imJUPBYLKKsENNQUtbv59E6eV9C46Dwoe8534EHLC7 | liquidity drained ($19.8K -> $5)
+2026-11-15 11:29:25,UPDATE,poorcat,G8Yp5m5VmBTh1myNUyoy1Gb7uY6ek3jkcTkYGxE8jQLN,,score 59
+2026-11-15 11:29:57,UPDATE,CYBERFINE,847WX2V6HVA5tzoEYXUvvaHYi2ieBxhYVqpEkYHipump,,score 66
+2026-11-15 11:32:26,BLACKLIST,GUNNITE,EUhCBrKd8EKnSpZ7kpZXHdDGxttCyok6Djhrdfrwbonk,,84iqQfU3c22wtW77rw74Fn1QAymJe7QwmnTpeRGiVvFa | liquidity drained ($101K -> $0)
+2026-11-15 11:34:09,UPDATE,VI,5wU7osGtkG6NP1Fxqv83mFL4uuDmjvggrkGwuZiYpump,,score 67
+2026-11-15 11:34:54,BREAKOUT,dragoncat,3nbHBkEDdbPiF5zJMhsxucm25V6UHKv9BVQuTKJVpump,,score 70
+2026-11-15 11:36:03,NEW,DPLANET,3WKWnMkNWz615hatpCAi5UzVdMHsjp8xAeujvkm6pump,,score 64
+2026-11-15 11:38:02,UPDATE,SIMULATOR,2pzqcihLvgfgQmCWpAByoPgr9qMh5Wrt33EHMxg9BAGS,,score 46
+2026-11-15 11:39:01,BLACKLIST,ORE,HNx4vaaixNmEYo3ogmMkG6wne2Na2JJ34QhiNEsXBYhy,,J69GW8Y3VU856JXBKZ9r2iD7NENBCtiYe4fdrzLXJA1o | liquidity drained ($18.6K -> $0)
+2026-11-15 11:40:03,UPDATE,DPLANET,3WKWnMkNWz615hatpCAi5UzVdMHsjp8xAeujvkm6pump,,score 28
+2026-11-15 11:41:36,NEW,Btslime,EoRJazd6kgMPwm2wsUYYbbXodcWgAbsimfFSz3uzpump,,score 60
+2026-11-15 11:42:05,BLACKLIST,TOOLS,9oV8q2SeriWfXKcmyDxNUJrT1N4EhgSbYQbZUbXTxwzt,,C7xzD6BM5SjjgvNtEVV791bWf8BKCpizz6nRusfW4gvf | liquidity drained
+2026-11-15 11:44:08,UPDATE,SHIT,3MwjGmRAXU3m7EyeZuVfsNrWgRZjuXZYNCywFXK432AH,,score 59
+2026-11-15 11:45:14,UPDATE,kibble,BtB54BEhTsx8syvWFUcMEe6vxASyL9zP7feXY5d1pump,,score 60
+2026-11-15 11:45:39,BREAKOUT,dragoncat,3nbHBkEDdbPiF5zJMhsxucm25V6UHKv9BVQuTKJVpump,,score 64
+2026-11-15 11:46:28,UPDATE,PROMETHEUS,GEppMmnXswv1cqJBMUU2t8QkB2FCRrQUQb1v7K3xpump,,score 61
+2026-11-15 11:46:36,UPDATE,Btslime,EoRJazd6kgMPwm2wsUYYbbXodcWgAbsimfFSz3uzpump,,score 70
+2026-11-15 11:47:10,UPDATE,SLIDES,8JNcbK2bWFxQnZsR6xQtgB3en7DcFSXW5xSyh6fYpump,,score 61
+2026-11-15 11:48:07,DEAD,Btslime,EoRJazd6kgMPwm2wsUYYbbXodcWgAbsimfFSz3uzpump,,liquidity_pulled Liquidity $102K → $0.
+2026-11-15 11:48:07,BLACKLIST,Btslime,EoRJazd6kgMPwm2wsUYYbbXodcWgAbsimfFSz3uzpump,,CTChM3dmHBxxb52PSqaL3buqfDgENCB4saCQCV2jVQiW | liquidity pulled
+2026-11-15 11:48:07,DEAD,Btslime,EoRJazd6kgMPwm2wsUYYbbXodcWgAbsimfFSz3uzpump,,
+2026-11-15 11:50:08,UPDATE,DPLANET,3WKWnMkNWz615hatpCAi5UzVdMHsjp8xAeujvkm6pump,,score 21
+2026-11-15 11:50:41,BLACKLIST,starshit,2BjbRCUw1LRdn1r4J6pLfmoSquX2HnTh1Kpw8NCdgxBY,,5q1Dy2aSyzW29472CJ4StaCj971eGjfX6jMUSYU619Rg | liquidity drained ($31.9K -> $0)
+2026-11-15 11:50:49,UPDATE,nilf,ABgXjaJ3iUg66vxhitQ77gj3cSechFJ3qyiPiRpqpump,,score 50
+2026-11-15 11:51:09,UPDATE,dragoncat,3nbHBkEDdbPiF5zJMhsxucm25V6UHKv9BVQuTKJVpump,,score 60
+2026-11-15 11:51:25,INVALIDATED,DPLANET,3WKWnMkNWz615hatpCAi5UzVdMHsjp8xAeujvkm6pump,,dev_sold Dev wallet balance dropped 2623.93% of supply.
+2026-11-15 11:51:25,BLACKLIST,DPLANET,3WKWnMkNWz615hatpCAi5UzVdMHsjp8xAeujvkm6pump,,8fmExxnTccUqcv7fzVSdPtT4Dam6D5NhrdNRKPcYjJUy | dev sold after alert
