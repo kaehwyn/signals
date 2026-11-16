@@ -14611,3 +14611,23 @@ time,event,symbol,mint,price,detail
 2026-11-16 17:12:09,BLACKLIST,LemonPig,987wdq8sXtn85mZZysC7GEXeEbiMBstJsPzWuUpTH8fC,,EzsTm1pyBABdzEubyKxPCLHBxRikzqniSN5pkNsjSWgX | liquidity drained ($18.6K -> $0)
 2026-11-16 17:12:41,UPDATE,Huang,42Fyyi97PSgdnoaskbHDHFsCFR6hr5DtwK3hKTzXpump,,score 65
 2026-11-16 17:12:41,BLACKLIST,Lemon,9JLnH3DvqiDsK2kEVjBC7cx6AWQfYd5QqC1jFsgXeLg2,,A8Bg6LniuxJK1Yw2arUrD8WbRpURX5GnxTzP887xSFKm | liquidity drained
+2026-11-16 17:13:42,BLACKLIST,Lemon,GN84yhwDtgft9GZDPWMNuBCGFdAbd32R6qRbPxDt4vAm,,7Vtmunz2uBwHVTYTxUT5WXQg5VAcCuzvoBRSsy7btk8j | liquidity drained ($13.6K -> $0)
+2026-11-16 17:14:57,NEW,Lemon,FsFqQGxCNd7dbFuimCW4hMiFRdvvM8PoLyp4WZrxAUnN,,score 78
+2026-11-16 17:15:24,UPDATE,Stumpy,83GtPpfNSau1mtDZZ7Vx6YCf8gA5eBxniWCoDsvK2avy,,score 66
+2026-11-16 17:15:50,UPDATE,JENSEN,73YNnB2DJfWxwG8pMtvzog1B5RG4hXC7RoZHvYDCpump,,score 66
+2026-11-16 17:17:14,BLACKLIST,DSP,99XJKy2MzQxbpEySbSfgCt1PDc4YrTaxy4nxQ94WwJYL,,4sS12n7QQ7PWhSruLtTJUg3hAiBk5Y79BcuXkR9WumVh | liquidity drained ($35.7K -> $11)
+2026-11-16 17:17:16,UPDATE,CYBERWAR,EGBjhLVAwVr1axmoAGaMdzphgny6Zcj3sd5XpZfSpump,,score 65
+2026-11-16 17:17:17,UPDATE,dragoncat,3nbHBkEDdbPiF5zJMhsxucm25V6UHKv9BVQuTKJVpump,,score 65
+2026-11-16 17:18:22,INVALIDATED,GIFT,tmZXn6N9rmPqh6LnU49jmAARqnmsPhyUKKNbvvkpump,,dev_sold Dev wallet balance dropped 2.31% of supply.
+2026-11-16 17:18:22,BLACKLIST,GIFT,tmZXn6N9rmPqh6LnU49jmAARqnmsPhyUKKNbvvkpump,,CUvcsZ4HiJML4mGH7YvH7XmkuZxypH3kUfSMgwS7Ezp | dev sold after alert
+2026-11-16 17:19:17,BREAKOUT,WASTED6,3wyRvbB6nFD7Y9cuozSXrUajZs1EoJxrcBCDBxwupump,,score 70
+2026-11-16 17:19:19,UPDATE,SNUT,88ZWKeNqsNuryefmk1uT9baccba77aet6ge3rUpEpump,,score 70
+2026-11-16 17:19:45,UPDATE,PROMETHEUS,GEppMmnXswv1cqJBMUU2t8QkB2FCRrQUQb1v7K3xpump,,score 78
+2026-11-16 17:19:47,BLACKLIST,SNUT,HeWxexturged25DiWTouj9Qgvg4KmegWiFdJQqysAbB5,,GijvypuLgmsVzPeRkqjpWkR3N5v8j2C4DpWeLk6YYHVX | liquidity drained ($29.6K -> $2)
+2026-11-16 17:19:51,BLACKLIST,LemonPig,6jkYKjHGC2vPzXL4fVt9ow9MZhnsKKGMsH48feKEVZfA,,7rt3GZgFPecKjBTSVSsXQJj94tbFEr8SfCDi63fvquD2 | liquidity drained ($20.3K -> $2)
+2026-11-16 17:20:20,UPDATE,BigP,CY254o6VPaJnTiY5uuKUB8xDjSgykC6xtoLoC3kpump,,score 60
+2026-11-16 17:20:32,UPDATE,MEE,4r1ZJUx7iQtsVcM9NJz3DbqZfBAHLcb1EMCSasyapump,,score 70
+2026-11-16 17:20:48,BLACKLIST,Sumflask,Fh7RMvzwUrsCxLfXUMtuVudMufjaeBUhLVZTJkcnmoon,,FxeEjNdYdd8p2xoygv2pW9zgyeDaXWqtyFzyBqfH72Jj | liquidity drained ($103K -> $0)
+2026-11-16 17:21:21,UPDATE,hello,2Lw9FQA1iAwg5Wo1NTh8GTs3zmVQc7XHGBbexqZgqtWJ,,score 68
+2026-11-16 17:21:21,UPDATE,AUSTISM,2oxHzSUA6qz4My8qxpz3YFhtweUd15khaDhx5N7mBAGS,,score 55
+2026-11-16 17:22:51,BLACKLIST,pep,gLtgbn7efxzz6XkM3PaY6PR5bFSmxuVvvivuuxzDpHD,,555mrwBMLCgfsp2iYuG8QMsfkDtUXAtir1BZwWJ65rAD | liquidity drained ($21.5K -> $0)
