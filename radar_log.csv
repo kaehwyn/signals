@@ -22430,3 +22430,25 @@ time,event,symbol,mint,price,detail
 2026-11-19 13:18:15,BREAKOUT,DCTY,GD8GhsCv7GHaimi3N5wZU5ZGsZGY3LB6vLN7LgJYpump,,score 78
 2026-11-19 13:18:16,BLACKLIST,gtacat,4wuDfeGpJnnXgHZdogCaMLYzm6MNmcUcFcQBPVWQ6DgD,,6qqbaJu1zgLeAuKxyKRpXUtXD1LtChZDUvLZHQ3Ciadn | liquidity drained ($32.8K -> $5)
 2026-11-19 13:18:17,UPDATE,Glseal,7a9Gtx8qMPJG1xZHaEfoEACedkxooha64gWZJi5gpump,,score 52
+2026-11-19 13:18:50,UPDATE,DCTC,47f8bEDWs6VDpnnmxegyL4A3GbBVVcssrMQeBjPvpump,,score 63
+2026-11-19 13:19:11,INVALIDATED,Glseal,7a9Gtx8qMPJG1xZHaEfoEACedkxooha64gWZJi5gpump,,dev_sold Dev wallet balance dropped 86899.20% of supply.
+2026-11-19 13:19:11,BLACKLIST,Glseal,7a9Gtx8qMPJG1xZHaEfoEACedkxooha64gWZJi5gpump,,AooYaBdWoRGC5itpkeTP2nwCmuFWkgv1P1Ueiu2G4b9g | dev sold after alert
+2026-11-19 13:19:43,UPDATE,VC,VCLUBuKaUbqGogb8Z88mWtFD5w9XK8Z31iPhiLFEkpj,,score 60
+2026-11-19 13:20:18,BLACKLIST,testicle,CrEQQiKUo3XAd9zvKWnDrENsvsTHDdrooGofiiGJa7XL,,Dhyo3y1ac5VQCHQRcAmWrpepZ9EJHZfECfV5ov4eLeVa | liquidity drained ($23.1K -> $30)
+2026-11-19 13:20:53,UPDATE,FISH,HgDMWzq998ZKB61zAtfutgToKjLbiwcufoRh376Dpump,,score 70
+2026-11-19 13:21:07,UPDATE,Neighbors,33fBYettXQYZtf4gKRjb29SarVw3PXttJ4PtiyFVpump,,score 56
+2026-11-19 13:21:13,UPDATE,APOCRYCOIN,6dy9DhP5wCSb5uf1m9WPaTA1xjzVNR6uskCUVQnEpump,,score 59
+2026-11-19 13:21:33,BREAKOUT,Sparrow,5a6mAmWbL3Na2KhwV1LmmAUSf12Gy1vd3NjqBq24pump,,score 70
+2026-11-19 13:21:35,UPDATE,DACI,riyTbsDpXG7TuKq2xhuxfw4Anxxb6k9i6aibBnqpump,,score 73
+2026-11-19 13:22:26,UPDATE,PIPI,6MKD1NkLvWRqdbFtqmgACBwUV5o6GJpZry8HkNgzpump,,score 77
+2026-11-19 13:22:56,3X,PIPI,6MKD1NkLvWRqdbFtqmgACBwUV5o6GJpZry8HkNgzpump,,
+2026-11-19 13:23:50,BLACKLIST,gtacat,5j21jJ8Z1x9pcwkrcjn1urjnREFqwqERiUFHmjf2CCYn,,HuBX3prNizAn7dvU88TFxxsmntSz44mGhBV6WhGWpEay | liquidity drained ($40.0K -> $6)
+2026-11-19 13:23:50,BLACKLIST,Lily,24ZYBmuFbQ5Vo7Qd1hZY6BscbkEYfDdjhijaDBeZkuJX,,CcAKdhw9zci4qDbHqZSpjwekk2cMjWxjsiwTbWCghzLf | liquidity drained ($23.5K -> $0)
+2026-11-19 13:23:52,UPDATE,Snapmatic,4S8pUKWKUAtQKfE5qokSjszWDp1RqQWnom8jNYSWpump,,score 48
+2026-11-19 13:23:59,BREAKOUT,DCTC,BM5wUne5TCtqVn6QTwrQCZ6LAgY7pgVr7KSMzV1Gpump,,score 78
+2026-11-19 13:24:51,BLACKLIST,PIPI,EnV98QsEg3jAwAtdkKNA96eE3oYumQUXKHz5J52TY1Xk,,FNE7JERiwaF6pcmeazjG8nzemRBmrgzLyZCiRrDp18Sk | liquidity drained ($33.8K -> $23)
+2026-11-19 13:25:45,UPDATE,UDTF,vsTb2qz9WfTCEHzsmULNGC6Y99z5oygKEkkiBoDpump,,score 51
+2026-11-19 13:26:22,BLACKLIST,Berowl,9K2WC5297crcYP3oaxu9cBGCYtCKmSG8CuF9VaQ3BAGS,,3e8bmod7r8mYRQkvwwKDvrUdH4hHo4Nt7KU9toAFz7aA | liquidity drained ($109K -> $0)
+2026-11-19 13:26:52,UPDATE,BPF,p9CYYG4YzkLXvbx21BqoH3nxuLtZUNNvTZQgv8Kpump,,score 43
+2026-11-19 13:26:54,BLACKLIST,gtacatvi,7DfaoE7GfGWzTNcohNV7DkQkUUQXvPFjAzpwuzuNL7Xs,,2bKxfmBdj1C2v7fKLBX1hNgBqG3N5ho12KfZvtYgYBo4 | liquidity drained ($44.2K -> $4)
+2026-11-19 13:27:59,UPDATE,Mandy,2xCd5qHX5tW6pGUo7zfgHSSAnRjJwPA7Sz1Fu4fWcJjX,,score 78
