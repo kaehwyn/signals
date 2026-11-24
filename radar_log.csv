@@ -34773,3 +34773,16 @@ time,event,symbol,mint,price,detail
 2026-11-24 18:05:22,BLACKLIST,Optimus,FVxbUos6zAy3H1QsRyPWAgazBoKLCUTZY2JtauzhWj2p,,HHUGwd4W4wDvpbxMa2mWTKEmUn5Km3jw3EjmYF9X6YT7 | liquidity drained ($112K -> $388)
 2026-11-24 18:05:52,BLACKLIST,CHRISTMAS,qD6WTyYFQmUkSUVxeydhbftUgdsGNVPGjLhHdgJJd4F,,ATs7axpshQ5fYFCnVa2yRB5SsbEDdUefcu4Y3UoEGiEr | liquidity drained ($50.9K -> $58)
 2026-11-24 18:06:16,UPDATE,Holders,55RwtHpoNB81SgfiNvogeZTMfik2SfMGa5FaxKcXpump,,score 70
+2026-11-24 18:06:39,BREAKOUT,LFG,FFXtjuyoeMhKT8yCpXdDwee9yftW9u71zggWxQgBpump,,score 61
+2026-11-24 18:08:42,UPDATE,Unemployed,FJ3eLHQJqq8NsVkUyQmj5jSJJXvdf1ZiP2YMdEWUpump,,score 60
+2026-11-24 18:10:44,UPDATE,Fiona,AQknP6fEGQe6GUYn8V7ToHj9jo6Cc4A1tJ7XJk2fpump,,score 70
+2026-11-24 18:11:08,BLACKLIST,dingwei,E29hSFSwmCPe7GqwBF6rosqKSn68iuD8dVfpqceHNHZK,,ADXB5FvY98FnbBcSJLNTD1cQXn3hridZXMfSos27X8h8 | liquidity drained ($15.6K -> $10)
+2026-11-24 18:11:18,UPDATE,SANTIA,2YKce3apGESoWhqt4N7MGg5t4UEKgPPL4ArheEvPpump,,score 70
+2026-11-24 18:12:24,BLACKLIST,Botgav,AbP4KAx4t9pNG9CwUvwq1a6RJpKh17ay7Qo5uHFEBAGS,,6boiVfhXGzd6Wuq8PfXLH9UsYPtS5JMr8UcUk6rW2p91 | liquidity drained
+2026-11-24 18:12:36,UPDATE,OFFSHORE,DMTxhDS1isv7fVrYZvoJpG5stEpHqfYTFAhHAYHVpump,,score 54
+2026-11-24 18:13:41,UPDATE,FLOG,CGJUUXmWgHaCp3ZVfX6rQJKQbNvLj7gXp3mBbUtJpump,,score 78
+2026-11-24 18:14:35,UPDATE,Doomcat,EiQ1JvEUZCXN5kQi2UdS4CdQapidqC7MCXd5sRTPpump,,score 59
+2026-11-24 18:14:55,BLACKLIST,CTO,r1esjEzwWK2yFwqvX31NxH3koXjoyWQrMKbvLqLkBMf,,EpLeLXamSQ5asB7LreTvVyc7cZCR3NvPrf6N6nCWPsyf | liquidity drained ($15.8K -> $0)
+2026-11-24 18:15:25,BLACKLIST,CTO,88uJGXpwpxbSv2XeS9cyxzvqaVsTYFAueiktKnqgphFz,,3iawpXFtoQNpr2qP55F4vq4xn3USaPfFZ3hfhRcgwcNe | liquidity drained ($28.5K -> $5)
+2026-11-24 18:16:12,INVALIDATED,Holders,55RwtHpoNB81SgfiNvogeZTMfik2SfMGa5FaxKcXpump,,dev_sold Dev wallet balance dropped 0.10% of supply.
+2026-11-24 18:16:12,BLACKLIST,Holders,55RwtHpoNB81SgfiNvogeZTMfik2SfMGa5FaxKcXpump,,595MHssTxbULThutJnRSrwkTZYWg6r1d1QkLe9DP6TR | dev sold after alert
