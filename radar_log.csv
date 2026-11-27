@@ -41953,3 +41953,11 @@ time,event,symbol,mint,price,detail
 2026-11-27 19:49:32,BLACKLIST,ZERO,3xm8pFEjKhYnBL9D4j3uw9R986zKd8fmBkmecgRGDMAZ,,48BKDLxR1L32HmQMo76bzKaVKXuamY4qUV6ozeMBaGbn | liquidity drained ($47.2K -> $9)
 2026-11-27 19:50:05,BLACKLIST,JIMMY,4LS1i2gcjTECprwDqGdrpLAUnyrm8Ebpfjweh9NQDj29,,2uSRDyzBymRsdXYBEqvpDvxcYPVXDLLoBerQhc9DeRBV | liquidity drained ($57.1K -> $6)
 2026-11-27 19:50:24,UPDATE,Egg,EVASJxNTfg5P8qrj3crg11pQNDva6fqzfHavZ9NLpump,,score 60
+2026-11-27 19:51:37,BREAKOUT,VICAT,4WZLGbAp6oEPxFbDcsfADCo1AgYZkfiteQhtM5iwpump,,score 78
+2026-11-27 19:52:41,UPDATE,WINSTON,7Y2CVbnqZRvR5RUvEJ9RQ73fZEfv7ybNcysytAepump,,score 80
+2026-11-27 19:53:07,BLACKLIST,BTC,FgMc8WjgAJqvUoKJfUnaUniVxyb3ZduFGKvn4viC1qf2,,CjEKfos3nLHanoBPKr8AamQMFvuoRoUn8gfoZLeyUWCe | liquidity drained ($19.8K -> $30)
+2026-11-27 19:53:39,UPDATE,VAULT,4tqzkSWA9tiWYhzYpSt81We3cVNkrEbkD1tzjFDZpump,,score 88
+2026-11-27 19:56:41,BLACKLIST,HACHIKO,7cMNPVGjnmKBAzMoejavfBWCikUSVGczsJB2CvJ2afBW,,H6PXdPR2fKw3n8mPGqtqbpdioZyWA8BaNsrP1QYGK7my | liquidity drained ($18.2K -> $12)
+2026-11-27 19:58:37,NEW,MAYA,2EEFQNwAjsJwKHWXyjxUnmwgqGcsVQgStZBs1Je9pump,,score 70
+2026-11-27 19:58:42,BLACKLIST,Snowball,9ELrQEh112QsTMZLw82vdmyqk2sycXrxyAnwEWDzxDPk,,Gpsx4Qfr7gReKsyHBe5S7JqTSvoN3a9DBDasZFBkv5NS | liquidity drained ($38.3K -> $1)
+2026-11-27 20:00:14,BLACKLIST,Split,13mgdzofLRRyw7ZcAQhLM5nLPzHqpLnXafDhMzKrS8Rt,,Gh9gyDzrNq8XBqJauKCcmu8Dw99Ea7HSKnBaBpsU89GM | liquidity drained ($96.9K -> $0)
